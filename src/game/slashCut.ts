@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import type { DesignPoint } from './slashInput';
 import { designToLocalXY } from './slashHit';
+import { isSolid3d, sliceSolid3d } from './solid3d';
 import {
-  meshFromProfile,
+  meshFromCutPiece,
   splitConvexPolygon,
   type Poly2,
 } from './wood';
@@ -27,6 +28,10 @@ export function cutMeshBySlash(
   mesh.updateMatrixWorld(true);
   camera.updateMatrixWorld(true);
 
+  if (isSolid3d(mesh)) {
+    return sliceSolid3d(mesh, camera, p0, p1);
+  }
+
   const profile = mesh.userData.profile as Poly2[] | undefined;
   const depth = mesh.userData.depth as number | undefined;
   if (!profile || profile.length < 3 || !depth) return null;
@@ -38,8 +43,8 @@ export function cutMeshBySlash(
   const parts = splitConvexPolygon(profile, a, b);
   if (!parts) return null;
 
-  const pieceA = meshFromProfile(parts.pos, depth, mesh);
-  const pieceB = meshFromProfile(parts.neg, depth, mesh);
+  const pieceA = meshFromCutPiece(parts.pos, depth, mesh);
+  const pieceB = meshFromCutPiece(parts.neg, depth, mesh);
   if (!pieceA || !pieceB) {
     pieceA?.geometry.dispose();
     pieceB?.geometry.dispose();

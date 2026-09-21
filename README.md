@@ -1,12 +1,13 @@
 # Islash Cut
 
-竖屏 WebGPU 壳上的 **划切练习原型**：滑动=刀，板=木头，划穿 1 变 2。
+竖屏 WebGPU 壳上的 **切割拼图**：看缺角圆，在方板上划出缺块，镶回去。刀仍是滑动贯穿。
 
-壳来自 **niantu** 适配/TS/设备预览 + **three-webgpu-cap-shell** 打包。玩法规范：[docs/SLASH-DESIGN.md](./docs/SLASH-DESIGN.md)。
+壳来自 **niantu** 适配/TS/设备预览 + **three-webgpu-cap-shell** 打包。玩法：[docs/CUT-PUZZLE.md](./docs/CUT-PUZZLE.md)；刀法：[docs/SLASH-DESIGN.md](./docs/SLASH-DESIGN.md)。
 
 | 文档 | 用途 |
 |------|------|
 | [AGENTS.md](./AGENTS.md) | AI / 新窗口第一入口 |
+| [docs/CUT-PUZZLE.md](./docs/CUT-PUZZLE.md) | **当前玩法**：切割拼图（第一关已接） |
 | [docs/SLASH-DESIGN.md](./docs/SLASH-DESIGN.md) | 划切规则、参数表、模块 |
 | [docs/SLASH-INTENT.md](./docs/SLASH-INTENT.md) | 入点 A、补切、余势、夹缝、乱划、有效刀 |
 | [docs/SLASH-FEEL.md](./docs/SLASH-FEEL.md) | 顿帧、震屏、划痕、刀震 |
@@ -24,10 +25,10 @@
 ```bash
 npm install
 npm run dev
-# → http://127.0.0.1:5190/
+# → http://127.0.0.1:5200/
 ```
 
-应看到：桌面手机框、青绿水纹背景、橙色木板、划痕、右下角「调试参数」按钮（默认收起）。在板上划穿 → 大块留下、小块飞出。切边和外轮廓是同一圈窄倒角（侧面竖直，只削朝镜头那一圈；几何见 [SLASH-DESIGN.md](./docs/SLASH-DESIGN.md)）。
+应看到：桌面手机框、红色青海波背景、先出现缺一角的木色圆，再缩到右上角，方板滑入。在板上划穿 → 大块留下、小块飞出。点小图镶嵌。无「调试参数」按钮。倒角见 [SLASH-DESIGN.md](./docs/SLASH-DESIGN.md)。
 
 ## 合并了什么
 

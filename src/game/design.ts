@@ -78,12 +78,50 @@ export function boardCutProgress(
 export const CUT_DEFAULT = { ...CUT };
 
 /**
+ * 切割拼图第一关（docs/CUT-PUZZLE.md）。
+ * 图：圆缺右上角；母料：方板。
+ */
+export const PUZZLE = {
+  showDur: 2.2,
+  thumbScale: 0.22,
+  patternR: 0.92,
+  /** 缩略图放在画面右上（世界 XY）。 */
+  thumbX: 0.95,
+  thumbY: 2.18,
+  cleanCuts: 2,
+  maxCuts: 3,
+  installDur: 0.55,
+  inspectDur: 1.15,
+  scoreDur: 1.35,
+  patternColor: 0xd94a3a,
+  gapHint: 0xf2c4a0,
+  /** 底盘比缺角圆略大，形成完整圆的凹槽。 */
+  trayScale: 1.14,
+  trayDepthK: 0.5,
+};
+
+/**
  * 图库（依次循环）。scale 为相对 `woodSize()` 面积的**线度**。
  * 长六边不跟面积对齐，用 `hexDiamondProfile` 世界尺寸。
  */
 export const BOARDS = {
   circleScale: 0.81,
   squareScale: 0.8,
+};
+
+/** 黄瓜（图库第一块圆柱）。真 CylinderGeometry，3D 平面剖，见 docs/CYLINDER-CUT.md。 */
+export const CYL = {
+  radius: 0.36,
+  length: 2.55,
+  skin: 0x3f8a2a,
+  flesh: 0xdde8b0,
+  seed: 0xc8c070,
+  rind: 0x2a5c18,
+  /** 旧「薄块改圆片」阈值，3D 剖分不再用。 */
+  coinSpan: 1.7,
+  faceColor: 0x7dae3f,
+  fleshColor: 0xe7f4c4,
+  uvScale: 0.45,
 };
 
 export const BOARDS_DEFAULT = { ...BOARDS };

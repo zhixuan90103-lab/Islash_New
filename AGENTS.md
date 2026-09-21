@@ -2,13 +2,14 @@
 
 > **打开本仓库时的第一入口。**  
 > 壳：portrait-webgpu-base（niantu 适配 + three-webgpu-cap-shell 打包）。  
-> 玩法：划切练习原型（`src/game/`）。
+> 玩法：切割拼图（`src/game/cutPuzzle.ts`）。刀法仍是练习场 A–B。
 
 ## 一句话
 
 **TypeScript + Three.js WebGPU + Vite + Capacitor iOS** 竖屏。  
 设计空间 **390×844** contain letterbox；`base: './'`。  
-滑动=刀，板=木头；划穿 1 变 2，大块留下，小块按刀向飞出。体积低于 1/10 完成切割，两块都飞，进度条满后换下一板。
+当前玩法：看缺角圆 → 方板入场 → 划穿削出缺块 → 镶回打分。  
+滑动=刀；大块留下，小块飞出。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。
 
 ## 入口地图
 
@@ -31,9 +32,11 @@
 | 意图识别 | `docs/SLASH-INTENT.md`（`slashIntent.ts`；余势 `slashFollow.ts`） |
 | 关卡背景 + 投影 | `src/game/backdrop.ts`（贴图 `src/assets/bg-dojo.jpg`） |
 | 灯光 | `src/game/lights.ts`（参数 `LIGHT`） |
-| 进度条 | `src/game/cutProgressHud.ts` |
+| 进度条 | `src/game/cutProgressHud.ts`（拼图关已隐藏） |
 | 划切调研 | `docs/SLASH-RESEARCH.md` |
 | 连续切技术 | `docs/SLASH-TECH.md` |
+| 切割拼图（当前玩法） | [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md) · `cutPuzzle.ts` · `PUZZLE` |
+| 圆柱 3D 切（管线） | [docs/CYLINDER-CUT.md](docs/CYLINDER-CUT.md)（拼图关未用图库圆柱） |
 
 ## DOM（勿拆）
 
@@ -54,15 +57,15 @@
 6. **Pad 只改外层视口**，不改 `DESIGN_*`  
 7. **改 Swift 改 `plugins/native-haptics/`** 再 `ios:bootstrap`；震动接线见 `docs/HAPTICS.md`。Capacitor 8 的 `SceneDelegate` 必须 `rootViewController = BridgeViewController()`（默认 `CAPBridgeViewController` 不会注册插件）。不要用 JS `prepare()` 判断是否接上；真机 HUD 看 `plugin: true` + 点「点我震动」。  
 8. **无 WebGPU 则明确失败**，不静默 WebGL  
-9. **玩法参数只改 `src/game/design.ts`**（或调试面板）。砍飞必须质量归一（`J = mass * Δv`），禁止固定冲量打所有块。顿帧只冻**本刀新块**；震屏只渲染前偏相机。  
-10. **切开只切 2D 轮廓再竖直挤出 + 半平面内收倒角**（`userData.profile`）。块要封口。禁止锥台、禁止 3D CSG、禁止整块缩小 inset。细则：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md)「几何」。  
+9. **玩法参数只改 `src/game/design.ts`**。拼图关不挂调试面板。砍飞必须质量归一（`J = mass * Δv`），禁止固定冲量打所有块。顿帧只冻**本刀新块**；震屏只渲染前偏相机。  
+10. **木板切开只切 2D 轮廓再竖直挤出 + 半平面内收倒角**（`userData.profile`）。块要封口。禁止锥台、禁止用 3D CSG/剖分去切倒角木板、禁止整块缩小 inset。细则：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md)「几何」。圆柱等回转体另走 3D 平面剖（[docs/CYLINDER-CUT.md](docs/CYLINDER-CUT.md)），不要缩短网格冒充。  
 11. **iOS**：`appId` = `com.wangzhixuan.islash.cut`，显示名 Islash Cut；真机不要 Simulator。  
 
 ## 命令
 
 ```bash
 npm install
-npm run dev           # http://127.0.0.1:5190/
+npm run dev           # http://127.0.0.1:5200/
 npm run build
 npm run cap:sync      # 网页改动同步 iOS
 npm run ios:bootstrap # 首次 / 修 Swift 插件
@@ -74,15 +77,16 @@ npm run ios           # build + sync + 开 Xcode
 
 ## 业务怎么加
 
-- 玩法：`src/game/`；规则：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md)；意图：[docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；打击感：[docs/SLASH-FEEL.md](docs/SLASH-FEEL.md)（入板锁 A、出板清、板心不锁；帮助指出 B；乱划 1.5 倍钉死到出板；余势拦弧线，短距离尖角才第二刀；有效刀钉到抬起）  
+- 玩法循环：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；刀：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md) + [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；打击感：[docs/SLASH-FEEL.md](docs/SLASH-FEEL.md)（入板锁 A、出板清、板心不锁；帮助指出 B；乱划 1.5 倍钉死到出板；余势拦弧线，短距离尖角才第二刀；有效刀钉到抬起）  
 - 保留：adapt / create-renderer / haptics / plugins / `base`  
-- 触控：整屏走刀，只对木板判切；可同时按下最多 3 指，**有效刀只有一把**（误触按着不动不挡真滑；成为有效刀后直到抬起）  
-- UI：只挂 `#ui-root`（进度条 + 调试面板）  
+- 触控：整屏走刀，只对木板判切；可同时按下最多 3 指，**有效刀只有一把**（误触按着不动不挡真滑；成为有效刀后直到抬起）。交卷是点缩略图。  
+- UI：只挂 `#ui-root`（缩略图热区 + 星；进度条 / 调试面板不显示）  
 - 音效：`src/audio/gameAudio.ts` + `docs/AUDIO.md`；禁止热路径 `new Audio()` / 每发一次桥  
 
 ## 刻意不做
 
-- 关卡 / 分数 / 连击 / 其它手势族  
+- 第二关尚未做；不要默默接回图库轮换 / 完成切割换板  
+- 连击 / 其它手势族  
 - 伪造「重侧下垂」力矩  
 - 整板锥台、3D CSG 切倒角网格  
 - Android（可后加）  

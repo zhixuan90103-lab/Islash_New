@@ -3,6 +3,7 @@ import { WOOD } from './design';
 import {
   cleanConvex,
   earClip,
+  ensureCcw,
   inwardDist,
   polyArea,
   polyIsConvex,
@@ -222,12 +223,64 @@ function pushTri(
   uv.push(a[0], a[1], b[0], b[1], c[0], c[1]);
 }
 
-export function createWoodSolid(
+/** 凹轮廓也走同一套正面内收倒角（缺角圆）。不走凸包。 */
+function miterInset(poly: Poly2[], d: number): Poly2[] | null {
+  const n = poly.length;
+  if (n < 3 || d <= 1e-8) return null;
+  const out: Poly2[] = [];
+  for (let i = 0; i < n; i++) {
+    const p0 = poly[(i - 1 + n) % n];
+    const p1 = poly[i];
+    const p2 = poly[(i + 1) % n];
+    const e0x = p1.x - p0.x;
+    const e0y = p1.y - p0.y;
+    const e1x = p2.x - p1.x;
+    const e1y = p2.y - p1.y;
+    const l0 = Math.hypot(e0x, e0y) || 1;
+    const l1 = Math.hypot(e1x, e1y) || 1;
+    const n0x = -e0y / l0;
+    const n0y = e0x / l0;
+    const n1x = -e1y / l1;
+    const n1y = e1x / l1;
+    const den = 1 + n0x * n1x + n0y * n1y;
+    if (Math.abs(den) < 1e-6) return null;
+    out.push({
+      x: p1.x + ((n0x + n1x) * d) / den,
+      y: p1.y + ((n0y + n1y) * d) / den,
+    });
+  }
+  return out;
+}
+
+function planChamferAny(
   profile: Poly2[],
-  depth: number,
   inset: number,
+  depth: number,
+): ChamferPlan {
+  if (polyIsConvex(ensureCcw(profile))) {
+    return planChamfer(profile, inset, depth);
+  }
+  const back = ensureCcw(profile);
+  const d = Math.min(Math.max(0, inset), depth * 0.45);
+  if (back.length < 3 || d <= 1e-8) return prismPlan(back);
+  const front = miterInset(back, d);
+  if (!front || front.length !== back.length || polyArea(front) <= 1e-8) {
+    return prismPlan(back);
+  }
+  const n = back.length;
+  const bands: EdgeBand[] = back.map((_, i) => ({
+    chamfer: true,
+    inner0: front[i],
+    inner1: front[(i + 1) % n],
+    orig: i,
+  }));
+  return { back, rim: d, bands, gaps: [], front };
+}
+
+function geomFromPlan(
+  plan: ChamferPlan,
+  depth: number,
 ): THREE.BufferGeometry | null {
-  const plan = planChamfer(profile, inset, depth);
   const { back, rim, bands, gaps, front } = plan;
   if (back.length < 3 || front.length < 3) return null;
   const hd = depth * 0.5;
@@ -306,4 +359,20 @@ export function createWoodSolid(
   geom.computeBoundingSphere();
   geom.userData.profile = back;
   return geom;
+}
+
+export function createWoodSolid(
+  profile: Poly2[],
+  depth: number,
+  inset: number,
+): THREE.BufferGeometry | null {
+  return geomFromPlan(planChamfer(profile, inset, depth), depth);
+}
+
+export function createChamferedSolid(
+  profile: Poly2[],
+  depth: number,
+  inset: number,
+): THREE.BufferGeometry | null {
+  return geomFromPlan(planChamferAny(profile, inset, depth), depth);
 }

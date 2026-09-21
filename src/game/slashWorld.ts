@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { applyBladeImpulse, pieceVolume } from './bladeForce';
 import { boardCutProgress, CUT, FINALE, FX, SHAKE, WOOD } from './design';
+import { createCutPuzzle } from './cutPuzzle';
 import { mountCutProgressHud } from './cutProgressHud';
 import { createScreenShake, cutHit } from './screenShake';
 import type { PhysBody } from './slashPhysics';
@@ -10,8 +11,6 @@ import {
   stepSlashIntent,
 } from './slashIntent';
 import { beginFollow } from './slashFollow';
-import { applyGameLights } from './lights';
-import { mountSlashDebugPanel } from './slashDebugPanel';
 import { createSlashOverlay } from './slashDebug';
 import { cutMeshBySlash, prepareCuttable } from './slashCut';
 import { projectMeshHull } from './slashHit';
@@ -25,6 +24,8 @@ import {
 } from './slashInput';
 import { createSlashPhysics } from './slashPhysics';
 import { createWoodSet } from './wood';
+import { createCucumberClip } from './cucumberClip';
+import { isSolid3d } from './solid3d';
 import { createSlashHaptics } from './slashHaptics';
 import { gameAudio } from '../audio/gameAudio';
 import type { StageLayout } from '../adapt/design';
@@ -53,7 +54,7 @@ export async function mountSlashWorld(
   const shake = createScreenShake(camera);
   const bladeHaptics = createSlashHaptics();
   const wood = createWoodSet(scene, physics);
-  wood.spawn();
+  const cucumberClip = createCucumberClip(scene);
   let enter: {
     from: number;
     to: number;
@@ -66,7 +67,19 @@ export async function mountSlashWorld(
       ? { from: mesh.position.y, to: WOOD.lift, t: 0, meshId: mesh.id }
       : null;
   };
-  beginEnter();
+  const halt = { fly: () => {} };
+  const puzzle = createCutPuzzle({
+    scene,
+    uiRoot: document.getElementById('ui-root'),
+    physics,
+    spawnBoard: () => wood.spawnSquare(),
+    clearBoard: () => wood.clear(),
+    beginEnter,
+    haltFly: () => halt.fly(),
+    faceMat: wood.faceMat,
+    edgeMat: wood.edgeMat,
+  });
+  let submitAfterFly = false;
   let nextBoardIn = -1;
   let lastCommit: { c0: DesignPoint; c1: DesignPoint } | null = null;
   let lastMeshFail: { c0: DesignPoint; c1: DesignPoint } | null = null;
@@ -91,6 +104,9 @@ export async function mountSlashWorld(
     finish: boolean;
     chord: { c0: DesignPoint; c1: DesignPoint };
   }[] = [];
+  halt.fly = () => {
+    pendingFly.length = 0;
+  };
   const _squeezeN = new THREE.Vector3();
   const _zero = { x: 0, y: 0, z: 0 };
   let slowLeft = 0;
@@ -106,8 +122,9 @@ export async function mountSlashWorld(
     rec: PhysBody;
     recKeep?: PhysBody;
   } => {
+    cucumberClip.hide();
     physics.removeMesh(old);
-    scene.remove(old);
+    old.removeFromParent();
     old.geometry.dispose();
     wood.forget(old);
 
@@ -235,7 +252,9 @@ export async function mountSlashWorld(
     const keepVol = Math.max(volA, volB);
     const originVol =
       Number(commit.mesh.userData.originVolume) || volA + volB;
-    const finish = keepVol < originVol * CUT.finishRemain;
+    const finish = puzzle.canCut()
+      ? false
+      : keepVol < originVol * CUT.finishRemain;
     const pieces = replaceCut(commit.mesh, result.a, result.b, finish);
     const hit = cutHit(speedPx, dropVol, keepVol);
     const freeze = finish
@@ -309,6 +328,12 @@ export async function mountSlashWorld(
     const sizeK = Math.min(1, (2 * dropVol) / Math.max(1e-12, dropVol + keepVol));
     gameAudio.crack({ speedPx, sizeK, finish });
     if (boardFingers.size <= 1) gameAudio.resetSlide();
+    if (
+      puzzle.canCut() &&
+      puzzle.onCut(pieces.keep, pieces.drop) === 'submit'
+    ) {
+      submitAfterFly = true;
+    }
     report(finish ? '完成切割' : '已切开');
     return true;
   };
@@ -317,19 +342,8 @@ export async function mountSlashWorld(
   const hud = uiRoot
     ? mountCutProgressHud(uiRoot)
     : { set: (_t: number) => {}, dispose: () => {} };
-  const panel = uiRoot
-    ? mountSlashDebugPanel(uiRoot, {
-        onWoodChange: () => {
-          nextBoardIn = -1;
-          wood.spawn();
-          beginEnter();
-          hud.set(0);
-          slowLeft = 0;
-        },
-        onGravityChange: (y) => physics.setGravityY(y),
-        onLightChange: () => applyGameLights(),
-      })
-    : { dispose: () => {} };
+  uiRoot?.querySelector('.cut-progress')?.classList.add('is-hidden');
+  const panel = { dispose: () => {} };
 
   let liveCutter: number | null = null;
 
@@ -403,6 +417,10 @@ export async function mountSlashWorld(
       else overlay.setPredicted(stroke.pointerId, []);
     },
     onMove: (stroke, lastSeg, dtSec) => {
+      if (!puzzle.canCut()) {
+        boardFingers.delete(stroke.pointerId);
+        return;
+      }
       if (!syncTrails(stroke)) {
         boardFingers.delete(stroke.pointerId);
         return;
@@ -475,6 +493,18 @@ export async function mountSlashWorld(
         frame.meshId != null
           ? wood.cuttables.find((m) => m.id === frame.meshId)
           : wood.cuttables[0];
+      if (
+        onBoard &&
+        frame.enter &&
+        trackedMesh &&
+        isSolid3d(trackedMesh) &&
+        !frame.commit &&
+        !frame.scribble
+      ) {
+        cucumberClip.show(trackedMesh, camera, frame.enter, lastSeg[1]);
+      } else {
+        cucumberClip.hide();
+      }
       const hull = trackedMesh
         ? projectMeshHull(trackedMesh, camera)?.hull ?? null
         : null;
@@ -502,6 +532,7 @@ export async function mountSlashWorld(
       });
     },
     onEnd: (stroke) => {
+      cucumberClip.hide();
       if (stroke) {
         boardFingers.delete(stroke.pointerId);
         cancelPushed.delete(stroke.pointerId);
@@ -520,6 +551,11 @@ export async function mountSlashWorld(
 
   return {
     step: (dt) => {
+      puzzle.step(dt);
+      if (submitAfterFly && pendingFly.length === 0) {
+        submitAfterFly = false;
+        puzzle.requestInstall();
+      }
       overlay.step();
       for (let i = pendingFly.length - 1; i >= 0; i--) {
         const p = pendingFly[i];
@@ -569,7 +605,7 @@ export async function mountSlashWorld(
         p.drop.position.copy(p.dropRest).addScaledVector(p.squeeze, -1);
       }
       shake.step(dt);
-      if (nextBoardIn >= 0) {
+      if (nextBoardIn >= 0 && !puzzle.canCut() && puzzle.phase() !== 'show') {
         nextBoardIn -= dt;
         if (nextBoardIn <= 0) {
           nextBoardIn = -1;
@@ -589,6 +625,8 @@ export async function mountSlashWorld(
       panel.dispose();
       hud.dispose();
       overlay.canvas.remove();
+      cucumberClip.dispose();
+      puzzle.dispose();
       wood.dispose();
       physics.dispose();
     },

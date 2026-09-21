@@ -91,6 +91,34 @@ export function applyBladeImpulse(
 }
 
 export function pieceVolume(m: THREE.Mesh): number {
+  if (m.userData.kind === 'solid3d') {
+    const geom = m.geometry;
+    const pos = geom.getAttribute('position');
+    if (pos && pos.count >= 3) {
+      let vol = 0;
+      const idx = geom.getIndex();
+      const ax = new THREE.Vector3();
+      const bx = new THREE.Vector3();
+      const cx = new THREE.Vector3();
+      const cr = new THREE.Vector3();
+      const n = idx ? idx.count : pos.count;
+      const tri = (i0: number, i1: number, i2: number) => {
+        ax.fromBufferAttribute(pos, i0);
+        bx.fromBufferAttribute(pos, i1);
+        cx.fromBufferAttribute(pos, i2);
+        cr.copy(bx).cross(cx);
+        vol += ax.dot(cr) / 6;
+      };
+      if (idx) {
+        for (let i = 0; i < n; i += 3) {
+          tri(idx.getX(i), idx.getX(i + 1), idx.getX(i + 2));
+        }
+      } else {
+        for (let i = 0; i < n; i += 3) tri(i, i + 1, i + 2);
+      }
+      if (Math.abs(vol) > 1e-10) return Math.abs(vol);
+    }
+  }
   const profile = m.userData.profile as { x: number; y: number }[] | undefined;
   const depth = m.userData.depth as number | undefined;
   if (profile && profile.length >= 3 && depth) {

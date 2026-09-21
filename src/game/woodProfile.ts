@@ -1,4 +1,4 @@
-import { BOARDS } from './design';
+import { BOARDS, CYL } from './design';
 
 export type Poly2 = { x: number; y: number };
 
@@ -75,10 +75,21 @@ function hexDiamondProfile(): Poly2[] {
 }
 
 /**
- * 图库依次：长六边 → 圆 → 正方形。
+ * 图库依次：黄瓜圆柱 → 长六边 → 圆 → 正方形。
  * matchArea 的块按 `woodSize()` 面积 × 线度² 缩放。
  */
-const BOARD_SHAPES: { make: () => Poly2[]; matchArea: boolean; areaScale: number }[] = [
+const BOARD_SHAPES: {
+  make: () => Poly2[];
+  matchArea: boolean;
+  areaScale: number;
+  solid?: 'prism' | 'cylinder';
+}[] = [
+  {
+    make: () => stadiumProfile(CYL.length, CYL.radius),
+    matchArea: false,
+    areaScale: 1,
+    solid: 'cylinder',
+  },
   { make: () => hexDiamondProfile(), matchArea: false, areaScale: 1 },
   {
     make: () => regularPoly(48, 1.05, 1.05),
@@ -97,7 +108,13 @@ export function catalogBoardProfile(
   maxW: number,
   maxH: number,
   last = -1,
-): { profile: Poly2[]; index: number } {
+): {
+  profile: Poly2[];
+  index: number;
+  solid: 'prism' | 'cylinder';
+  cylRadius?: number;
+  depth?: number;
+} {
   const n = BOARD_SHAPES.length;
   const index = n > 0 ? (last + 1 + n) % n : 0;
   const spec = BOARD_SHAPES[index];
@@ -106,7 +123,84 @@ export function catalogBoardProfile(
     ? targetArea * spec.areaScale
     : Math.abs(polyArea(raw));
   const profile = matchBoardArea(raw, area, maxW, maxH);
-  return { profile, index };
+  if (spec.solid === 'cylinder') {
+    const box = polyBBox(profile);
+    const cylRadius = box.w * 0.5;
+    return {
+      profile,
+      index,
+      solid: 'cylinder',
+      cylRadius,
+      depth: cylRadius * 2,
+    };
+  }
+  return { profile, index, solid: 'prism' };
+}
+
+/** 沿 Y 的胶囊（圆柱顶视）。 */
+export function stadiumProfile(length: number, radius: number, cap = 12): Poly2[] {
+  const r = Math.max(1e-4, radius);
+  const inner = Math.max(0, length * 0.5 - r);
+  const pts: Poly2[] = [];
+  for (let i = 0; i <= cap; i++) {
+    const a = Math.PI - (i / cap) * Math.PI;
+    pts.push({ x: Math.cos(a) * r, y: inner + Math.sin(a) * r });
+  }
+  for (let i = 0; i <= cap; i++) {
+    const a = -(i / cap) * Math.PI;
+    pts.push({ x: Math.cos(a) * r, y: -inner + Math.sin(a) * r });
+  }
+  return pts;
+}
+
+export function polyCentroid(poly: Poly2[]): Poly2 {
+  let a = 0;
+  let cx = 0;
+  let cy = 0;
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    const p = poly[i];
+    const q = poly[(i + 1) % n];
+    const c = p.x * q.y - q.x * p.y;
+    a += c;
+    cx += (p.x + q.x) * c;
+    cy += (p.y + q.y) * c;
+  }
+  a *= 0.5;
+  if (Math.abs(a) < 1e-10) {
+    let sx = 0;
+    let sy = 0;
+    for (const p of poly) {
+      sx += p.x;
+      sy += p.y;
+    }
+    return { x: sx / n, y: sy / n };
+  }
+  return { x: cx / (6 * a), y: cy / (6 * a) };
+}
+
+export function polySpanY(poly: Poly2[]): number {
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const p of poly) {
+    if (p.y < minY) minY = p.y;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return Math.max(0, maxY - minY);
+}
+
+export function polySpanX(poly: Poly2[]): number {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  for (const p of poly) {
+    if (p.x < minX) minX = p.x;
+    if (p.x > maxX) maxX = p.x;
+  }
+  return Math.max(0, maxX - minX);
+}
+
+export function circleProfileAt(cx: number, cy: number, radius: number, n = 28): Poly2[] {
+  return regularPoly(n, radius, radius, 0).map((p) => ({ x: p.x + cx, y: p.y + cy }));
 }
 
 export function rectProfile(width: number, height: number): Poly2[] {
