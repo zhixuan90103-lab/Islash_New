@@ -3,7 +3,7 @@
 > **已落地（图库第四块）。** 意图仍是 A–B 贯穿（[SLASH-INTENT.md](./SLASH-INTENT.md)）。  
 > 木板几何仍只切 2D 轮廓（[SLASH-DESIGN.md](./SLASH-DESIGN.md)）。圆柱是**第二条固体管线**，禁止拿来剖倒角木板，禁止缩短 `CylinderGeometry` 冒充切开。
 
-当前关卡循环见 [CUT-PUZZLE.md](./CUT-PUZZLE.md)（方板拼图，不用圆柱）。本文是图库圆柱 3D 剖，拼图关未启用。
+当前关卡循环见 [CUT-PUZZLE.md](./CUT-PUZZLE.md)（手工裁切拼图，不用圆柱）。本文是图库圆柱 3D 剖，拼图关未启用。
 
 ## 黄瓜预览（进行中）
 

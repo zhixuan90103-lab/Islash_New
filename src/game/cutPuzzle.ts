@@ -1,33 +1,67 @@
 import * as THREE from 'three';
-import { bevelInset, PUZZLE, woodSize } from './design';
-import { circleProfileAt, type Poly2 } from './woodProfile';
-import { createChamferedSolid, createWoodSolid } from './woodChamfer';
+import { DESIGN_HEIGHT, DESIGN_WIDTH } from '../adapt/design';
+import { bevelInset, PUZZLE, viewHalfH, woodSize } from './design';
+import { type Poly2 } from './woodProfile';
+import { createChamferedSolid } from './woodChamfer';
+import {
+  TURTLE,
+  localIsDark,
+  turtleEyeCenter,
+  turtleHeadPoly,
+  turtleParts,
+  type TurtlePart,
+} from './turtleLevel';
+import { BUTTERFLY, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
 import type { SlashPhysics } from './slashPhysics';
 
-export type PuzzlePhase = 'show' | 'cut' | 'install' | 'inspect' | 'score';
+export type PuzzlePhase = 'show' | 'fly' | 'cut' | 'install' | 'inspect' | 'score';
+
+export type PieceRole = 'stock';
 
 export type CutPuzzle = {
   phase: () => PuzzlePhase;
   canCut: () => boolean;
   cuts: () => number;
-  onCut: (keep: THREE.Mesh, drop: THREE.Mesh) => 'ok' | 'submit';
+  level: () => 'turtle' | 'butterfly';
+  /** 记下这一刀的两块。不限刀数，不自动交卷。 */
+  onCut: (a: THREE.Mesh, b: THREE.Mesh) => 'ok' | 'submit';
+  forget: (mesh: THREE.Mesh) => void;
   requestInstall: () => void;
   step: (dt: number) => void;
   dispose: () => void;
 };
 
-function sectorPoly(r: number, segs = 14): Poly2[] {
-  const pts: Poly2[] = [{ x: 0, y: 0 }];
-  for (let i = 0; i <= segs; i++) {
-    const a = (i / segs) * (Math.PI / 2);
-    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+function polyArea(poly: Poly2[]): number {
+  let a = 0;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    a += poly[j].x * poly[i].y - poly[i].x * poly[j].y;
   }
-  return pts;
+  return Math.abs(a) * 0.5;
+}
+
+function centeredIou(poly: Poly2[], slot: Poly2[]): number {
+  const cK = polyCentroid(poly);
+  const cT = polyCentroid(slot);
+  const dx = cT.x - cK.x;
+  const dy = cT.y - cK.y;
+  const moved = poly.map((p) => ({ x: p.x + dx, y: p.y + dy }));
+  return rasterIou(moved, slot);
+}
+
+function polyCentroid(poly: Poly2[]): Poly2 {
+  let x = 0;
+  let y = 0;
+  for (const p of poly) {
+    x += p.x;
+    y += p.y;
+  }
+  const n = Math.max(1, poly.length);
+  return { x: x / n, y: y / n };
 }
 
 function rasterIou(keep: Poly2[], target: Poly2[]): number {
   const n = 48;
-  const pad = PUZZLE.patternR * 1.15;
+  const pad = TURTLE.r * 1.35;
   const cell = (2 * pad) / n;
   let both = 0;
   let either = 0;
@@ -44,71 +78,65 @@ function rasterIou(keep: Poly2[], target: Poly2[]): number {
   return either <= 0 ? 0 : both / either;
 }
 
-function rightAngleIndex(poly: Poly2[]): number {
-  let bestI = 0;
-  let best = 1e9;
-  const n = poly.length;
-  for (let i = 0; i < n; i++) {
-    const p = poly[i];
-    const a = poly[(i - 1 + n) % n];
-    const b = poly[(i + 1) % n];
-    const x1 = a.x - p.x;
-    const y1 = a.y - p.y;
-    const x2 = b.x - p.x;
-    const y2 = b.y - p.y;
-    const l1 = Math.hypot(x1, y1) || 1;
-    const l2 = Math.hypot(x2, y2) || 1;
-    const ang = Math.acos(
-      Math.min(1, Math.max(-1, (x1 * x2 + y1 * y2) / (l1 * l2))),
-    );
-    const d = Math.abs(ang - Math.PI / 2);
-    if (d < best) {
-      best = d;
-      bestI = i;
-    }
-  }
-  return bestI;
+function turnPoly(poly: Poly2[], a: number, c: Poly2): Poly2[] {
+  const co = Math.cos(a);
+  const si = Math.sin(a);
+  return poly.map((p) => {
+    const x = p.x - c.x;
+    const y = p.y - c.y;
+    return { x: c.x + x * co - y * si, y: c.y + x * si + y * co };
+  });
 }
 
-/** 直角顶对准圆心，两条边贴缺口的 +X / +Y。不搜任意转角。 */
-function seatAsQuarter(mesh: THREE.Mesh): {
-  to: THREE.Vector3;
-  q: THREE.Quaternion;
-  seated: Poly2[];
-  iou: number;
-} {
+/** 在 24 个朝向里挑和零件最贴的一个。形状仍是切出来的那块。 */
+function bestTurn(poly: Poly2[], slot: Poly2[]): { a: number; iou: number } {
+  const c = polyCentroid(poly);
+  let bestA = 0;
+  let best = -1;
+  for (let i = 0; i < 24; i++) {
+    const a = (i / 24) * Math.PI * 2;
+    const iou = centeredIou(turnPoly(poly, a, c), slot);
+    if (iou > best) {
+      best = iou;
+      bestA = a;
+    }
+  }
+  return { a: bestA, iou: best };
+}
+
+/** 转到图纸上该零件的朝向，再把重心平移过去。 */
+function seatOnto(
+  mesh: THREE.Mesh,
+  slot: Poly2[],
+): { to: THREE.Vector3; q: THREE.Quaternion; iou: number } {
   mesh.updateMatrixWorld(true);
   const poly = worldPoly(mesh);
-  const n = poly.length;
-  const i = rightAngleIndex(poly);
-  const v = poly[i];
-  const a = poly[(i - 1 + n) % n];
-  const b = poly[(i + 1) % n];
-  const e0 = { x: a.x - v.x, y: a.y - v.y };
-  const e1 = { x: b.x - v.x, y: b.y - v.y };
-  const cross = e0.x * e1.y - e0.y * e1.x;
-  const first = cross >= 0 ? e0 : e1;
-  const second = cross >= 0 ? e1 : e0;
-  let rot = -Math.atan2(first.y, first.x);
-  let c = Math.cos(rot);
-  let s = Math.sin(rot);
-  const oy = s * second.x + c * second.y;
-  if (oy < 0) rot = -Math.atan2(second.y, second.x);
-  c = Math.cos(rot);
-  s = Math.sin(rot);
-  const seated = poly.map((p) => {
-    const x = p.x - v.x;
-    const y = p.y - v.y;
-    return { x: c * x - s * y, y: s * x + c * y };
-  });
-  const iou = rasterIou(seated, sectorPoly(PUZZLE.patternR));
-  const qx = mesh.position.x - v.x;
-  const qy = mesh.position.y - v.y;
-  const to = new THREE.Vector3(c * qx - s * qy, s * qx + c * qy, 0);
-  const q = new THREE.Quaternion()
-    .setFromAxisAngle(new THREE.Vector3(0, 0, 1), rot)
-    .multiply(mesh.quaternion);
-  return { to, q, seated, iou };
+  const cK = polyCentroid(poly);
+  const cT = polyCentroid(slot);
+  const turned = bestTurn(poly, slot);
+  const co = Math.cos(turned.a);
+  const si = Math.sin(turned.a);
+  const dx = mesh.position.x - cK.x;
+  const dy = mesh.position.y - cK.y;
+  const qDelta = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), turned.a);
+  return {
+    to: new THREE.Vector3(cT.x + dx * co - dy * si, cT.y + dx * si + dy * co, mesh.position.z),
+    q: qDelta.multiply(mesh.quaternion.clone()),
+    iou: turned.iou,
+  };
+}
+
+function colorHit(mesh: THREE.Mesh, wantDark: boolean): number {
+  const raw = (mesh.userData.profile as Poly2[] | undefined) ?? [];
+  if (raw.length < 3) return 0;
+  let hit = 0;
+  let n = 0;
+  const step = Math.max(1, Math.floor(raw.length / 12));
+  for (let i = 0; i < raw.length; i += step) {
+    n += 1;
+    if (localIsDark(raw[i].y) === wantDark) hit += 1;
+  }
+  return n === 0 ? 0 : hit / n;
 }
 
 function pointInPoly(x: number, y: number, poly: Poly2[]): boolean {
@@ -135,60 +163,29 @@ function worldPoly(mesh: THREE.Mesh): Poly2[] {
   }));
 }
 
-function missingQuarterProfile(r: number, segs = 32): Poly2[] {
-  const pts: Poly2[] = [{ x: 0, y: 0 }];
-  for (let i = 0; i <= segs; i++) {
-    const a = Math.PI / 2 + (i / segs) * Math.PI * 1.5;
-    pts.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
-  }
-  return pts;
-}
-
-function makePatternMesh(
-  face: THREE.MeshLambertMaterial,
-  edge: THREE.MeshLambertMaterial,
+function makePartMesh(
+  profile: Poly2[],
+  face: THREE.Material,
+  edge: THREE.Material,
 ): THREE.Mesh {
   const depth = woodSize().depth;
   const geom =
-    createChamferedSolid(
-      missingQuarterProfile(PUZZLE.patternR),
-      depth,
-      bevelInset(depth),
-    ) ?? new THREE.BoxGeometry(1, 1, depth);
+    createChamferedSolid(profile, depth, bevelInset(depth)) ??
+    new THREE.CircleGeometry(TURTLE.r, 20);
   const mesh = new THREE.Mesh(geom, [face, edge]);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  mesh.userData.profile = profile;
   mesh.position.z = 0;
   return mesh;
 }
 
-function makeTrayMesh(
-  face: THREE.MeshLambertMaterial,
-  edge: THREE.MeshLambertMaterial,
-): THREE.Mesh {
-  const depth = woodSize().depth;
-  const trayD = depth * PUZZLE.trayDepthK;
-  const geom =
-    createWoodSolid(
-      circleProfileAt(0, 0, PUZZLE.patternR * PUZZLE.trayScale, 36),
-      trayD,
-      bevelInset(trayD),
-    ) ?? new THREE.CylinderGeometry(PUZZLE.patternR, PUZZLE.patternR, trayD, 36);
-  if (geom instanceof THREE.CylinderGeometry) geom.rotateX(Math.PI / 2);
-  const mesh = new THREE.Mesh(geom, [face, edge]);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.position.z = -depth * 0.5 - trayD * 0.5;
-  return mesh;
-}
-
-function starRank(iou: number, cuts: number): number {
-  let n = 1;
-  if (iou >= 0.28) n = 2;
-  if (iou >= 0.48) n = 3;
-  if (cuts > PUZZLE.cleanCuts) n = Math.max(1, n - 1);
-  if (cuts > PUZZLE.maxCuts) n = 1;
-  return n;
+/** 外形和颜色都进分。公式以后再调，低分也过关。 */
+function starRank(shape: number, color: number): number {
+  const q = shape * 0.65 + color * 0.35;
+  if (q >= 0.62) return 3;
+  if (q >= 0.38) return 2;
+  return 1;
 }
 
 export function createCutPuzzle(opts: {
@@ -202,23 +199,85 @@ export function createCutPuzzle(opts: {
   faceMat: THREE.MeshLambertMaterial;
   edgeMat: THREE.MeshLambertMaterial;
 }): CutPuzzle {
-  const trayFace = opts.faceMat.clone();
-  trayFace.color.multiplyScalar(0.62);
-  const trayEdge = opts.edgeMat.clone();
-  trayEdge.color.multiplyScalar(0.7);
-  const pattern = makePatternMesh(opts.faceMat, opts.edgeMat);
-  const tray = makeTrayMesh(trayFace, trayEdge);
+  const shadowFace = new THREE.MeshLambertMaterial({ color: TURTLE.shadow });
+  const shadowEdge = new THREE.MeshLambertMaterial({ color: 0xaeb6b0 });
+  const headFace = new THREE.MeshLambertMaterial({ color: TURTLE.dark });
+  const headEdge = new THREE.MeshLambertMaterial({ color: 0x166b2c });
+  const eyeMat = new THREE.MeshBasicMaterial({ color: TURTLE.eye });
+  let level: 'turtle' | 'butterfly' = 'butterfly';
+  let parts: Array<TurtlePart | ButterflyPart> = [];
+  const slots = new Map<string, THREE.Mesh>();
+  const extras: THREE.Mesh[] = [];
+  const cardW = 2.05;
+  const cardH = 3.05;
+  const cardR = 0.22;
+  const cardShape = new THREE.Shape();
+  const hw = cardW / 2;
+  const hh = cardH / 2;
+  cardShape.moveTo(-hw + cardR, -hh);
+  cardShape.lineTo(hw - cardR, -hh);
+  cardShape.absarc(hw - cardR, -hh + cardR, cardR, -Math.PI / 2, 0, false);
+  cardShape.lineTo(hw, hh - cardR);
+  cardShape.absarc(hw - cardR, hh - cardR, cardR, 0, Math.PI / 2, false);
+  cardShape.lineTo(-hw + cardR, hh);
+  cardShape.absarc(-hw + cardR, hh - cardR, cardR, Math.PI / 2, Math.PI, false);
+  cardShape.lineTo(-hw, -hh + cardR);
+  cardShape.absarc(-hw + cardR, -hh + cardR, cardR, Math.PI, Math.PI * 1.5, false);
+  const card = new THREE.Mesh(
+    new THREE.ShapeGeometry(cardShape),
+    new THREE.MeshBasicMaterial({ color: 0xffffff }),
+  );
+  card.position.z = -0.05;
   const board = new THREE.Group();
-  board.add(tray);
-  board.add(pattern);
+  board.add(card);
   opts.scene.add(board);
+
+  const dropMesh = (mesh: THREE.Mesh) => {
+    board.remove(mesh);
+    mesh.geometry.dispose();
+  };
+
+  const mountLevel = () => {
+    for (const mesh of slots.values()) dropMesh(mesh);
+    slots.clear();
+    for (const mesh of extras) dropMesh(mesh);
+    extras.length = 0;
+    parts = level === 'turtle' ? turtleParts() : butterflyParts();
+    for (const part of parts) {
+      const mesh = makePartMesh(part.poly, shadowFace, shadowEdge);
+      mesh.name = part.id;
+      slots.set(part.id, mesh);
+      board.add(mesh);
+    }
+    const z = woodSize().depth * 0.55;
+    if (level === 'turtle') {
+      const head = makePartMesh(turtleHeadPoly(), headFace, headEdge);
+      extras.push(head);
+      board.add(head);
+      const eyeAt = turtleEyeCenter();
+      const eye = new THREE.Mesh(new THREE.CircleGeometry(TURTLE.r * 0.07, 16), eyeMat);
+      eye.position.set(eyeAt.x, eyeAt.y, z);
+      extras.push(eye);
+      board.add(eye);
+      return;
+    }
+    for (const at of butterflyEyes()) {
+      const eye = new THREE.Mesh(new THREE.CircleGeometry(BUTTERFLY.r * 0.055, 16), eyeMat);
+      eye.position.set(at.x, at.y, z);
+      extras.push(eye);
+      board.add(eye);
+    }
+  };
+  mountLevel();
   board.position.set(0, 0, 0);
   board.scale.set(1, 1, 1);
+  board.visible = false;
 
   const hit = document.createElement('button');
   hit.type = 'button';
-  hit.className = 'puzzle-thumb-hit';
-  hit.setAttribute('aria-label', 'install');
+  hit.className = 'puzzle-submit-hit';
+  hit.textContent = '装上';
+  hit.setAttribute('aria-label', '装上');
   hit.tabIndex = -1;
 
   const starsEl = document.createElement('div');
@@ -230,139 +289,283 @@ export function createCutPuzzle(opts: {
     starsEl.appendChild(d);
   }
 
-  const stepsEl = document.createElement('div');
-  stepsEl.className = 'puzzle-steps';
-  stepsEl.setAttribute('aria-hidden', 'true');
-  for (let i = 0; i < PUZZLE.maxCuts; i++) {
+  const hud = document.createElement('div');
+  hud.className = 'puzzle-hud';
+  hud.setAttribute('aria-hidden', 'true');
+  const chip = document.createElement('div');
+  chip.className = 'puzzle-art-chip';
+  const chipInner = document.createElement('div');
+  chipInner.className = 'puzzle-art-chip-inner';
+  chip.appendChild(chipInner);
+  hud.append(chip);
+  hud.classList.add('is-on');
+
+  const preview = document.createElement('div');
+  preview.className = 'puzzle-preview-card';
+  preview.setAttribute('aria-hidden', 'true');
+
+  const sparkles = document.createElement('div');
+  sparkles.className = 'puzzle-sparkles';
+  sparkles.setAttribute('aria-hidden', 'true');
+  const sparkleLayout: Array<[string, string, string, boolean]> = [
+    ['12%', '22%', '8px', false],
+    ['86%', '18%', '10px', false],
+    ['8%', '48%', '7px', false],
+    ['92%', '52%', '9px', false],
+    ['18%', '78%', '11px', false],
+    ['78%', '82%', '8px', false],
+    ['10%', '36%', '18px', true],
+    ['84%', '72%', '16px', true],
+  ];
+  for (const [left, top, size, star] of sparkleLayout) {
     const d = document.createElement('span');
-    d.className = 'puzzle-step';
-    stepsEl.appendChild(d);
+    d.className = star ? 'puzzle-sparkle is-star' : 'puzzle-sparkle';
+    d.style.left = left;
+    d.style.top = top;
+    d.style.width = size;
+    d.style.height = size;
+    sparkles.appendChild(d);
   }
 
   if (opts.uiRoot) {
+    opts.uiRoot.appendChild(sparkles);
+    opts.uiRoot.appendChild(hud);
+    opts.uiRoot.appendChild(preview);
     opts.uiRoot.appendChild(hit);
-    opts.uiRoot.appendChild(stepsEl);
     opts.uiRoot.appendChild(starsEl);
   }
-
-  const setSteps = (used: number) => {
-    stepsEl.dataset.used = String(Math.max(0, Math.min(PUZZLE.maxCuts, used)));
-  };
-  setSteps(0);
 
   let phase: PuzzlePhase = 'show';
   let t = 0;
   let cuts = 0;
   let stars = 0;
-  let lastKeep: THREE.Mesh | null = null;
-  let lastDrop: THREE.Mesh | null = null;
-  let install: {
+  let buttonLatched = false;
+  const frags: THREE.Mesh[] = [];
+  let installs: {
     mesh: THREE.Mesh;
     from: THREE.Vector3;
     to: THREE.Vector3;
     fromQ: THREE.Quaternion;
     toQ: THREE.Quaternion;
     u: number;
-  } | null = null;
+  }[] = [];
 
   const setThumbHit = (on: boolean) => {
     hit.classList.toggle('is-on', on);
   };
 
-  const placePattern = (thumb: boolean) => {
-    if (thumb) {
-      board.position.set(PUZZLE.thumbX, PUZZLE.thumbY, 0);
-      board.scale.setScalar(PUZZLE.thumbScale);
-    } else {
+  const hudPose = () => {
+    const stage = document.getElementById('stage');
+    const halfH = viewHalfH();
+    const halfW = halfH * (DESIGN_WIDTH / DESIGN_HEIGHT);
+    const hexPx = (2 * TURTLE.r * DESIGN_HEIGHT) / (2 * halfH);
+    let x = 0;
+    let y = halfH * 0.72;
+    let targetPx = 62;
+    if (stage) {
+      const sr = stage.getBoundingClientRect();
+      const cr = chipInner.getBoundingClientRect();
+      if (sr.width > 1 && cr.width > 1) {
+        const cx = ((cr.left + cr.width / 2 - sr.left) / sr.width) * DESIGN_WIDTH;
+        const cy = ((cr.top + cr.height / 2 - sr.top) / sr.height) * DESIGN_HEIGHT;
+        x = (cx / DESIGN_WIDTH - 0.5) * 2 * halfW;
+        y = (0.5 - cy / DESIGN_HEIGHT) * 2 * halfH;
+        targetPx = (cr.height / sr.height) * DESIGN_HEIGHT * 0.62;
+      }
+    }
+    return { x, y, s: Math.max(0.12, Math.min(0.45, targetPx / hexPx)) };
+  };
+
+  const placePattern = (mode: 'full' | 'cut') => {
+    hud.classList.add('is-on');
+    preview.classList.remove('is-on');
+    board.visible = true;
+    if (mode === 'cut') {
+      const p = hudPose();
+      board.position.set(p.x, p.y, 0);
+      board.scale.setScalar(p.s);
+    } else if (phase !== 'fly') {
       board.position.set(0, 0, 0);
       board.scale.set(1, 1, 1);
     }
+  };
+
+  let fly: {
+    u: number;
+    from: THREE.Vector3;
+    to: THREE.Vector3;
+    fromS: number;
+    toS: number;
+  } | null = null;
+
+  const startFly = () => {
+    phase = 'fly';
+    t = 0;
+    const p = hudPose();
+    fly = {
+      u: 0,
+      from: board.position.clone(),
+      to: new THREE.Vector3(p.x, p.y, 0),
+      fromS: board.scale.x,
+      toS: p.s,
+    };
+  };
+
+  const resetPieces = () => {
+    frags.length = 0;
+    installs = [];
+    buttonLatched = false;
   };
 
   const beginCut = () => {
     phase = 'cut';
     t = 0;
     cuts = 0;
-    lastKeep = null;
-    lastDrop = null;
-    setSteps(0);
-    placePattern(true);
+    resetPieces();
+    for (const mesh of slots.values()) mesh.visible = true;
+    placePattern('cut');
     setThumbHit(false);
     opts.spawnBoard();
     opts.beginEnter();
   };
 
-  const beginInstall = () => {
-    if (phase !== 'cut') return;
-    const drop = lastDrop;
-    const keep = lastKeep;
-    const candidates = [drop, keep].filter(
-      (m): m is THREE.Mesh => !!m && !!m.parent,
-    );
-    if (candidates.length === 0 || cuts < 1) return;
-    let mesh = candidates[0];
-    let scored = seatAsQuarter(mesh);
-    for (let i = 1; i < candidates.length; i++) {
-      const s = seatAsQuarter(candidates[i]);
-      if (s.iou > scored.iou) {
-        mesh = candidates[i];
-        scored = s;
+  const scoreOf = (mesh: THREE.Mesh, part: { poly: Poly2[] }) => {
+    mesh.updateMatrixWorld(true);
+    const poly = worldPoly(mesh);
+    const ratio = polyArea(poly) / Math.max(1e-6, polyArea(part.poly));
+    return { iou: bestTurn(poly, part.poly).iou, ratio };
+  };
+
+  const bestAssignment = () => {
+    const live = frags.filter((m) => ((m.userData.profile as Poly2[] | undefined)?.length ?? 0) >= 3);
+    const cands: { mesh: THREE.Mesh; id: string; iou: number; ratio: number }[] = [];
+    for (const mesh of live) {
+      for (const part of parts) {
+        const s = scoreOf(mesh, part);
+        cands.push({ mesh, id: part.id, iou: s.iou, ratio: s.ratio });
       }
     }
+    cands.sort((a, b) => b.iou - a.iou);
+    const usedM = new Set<THREE.Mesh>();
+    const usedP = new Set<string>();
+    const won: { mesh: THREE.Mesh; id: string; iou: number; ratio: number }[] = [];
+    for (const c of cands) {
+      if (usedM.has(c.mesh) || usedP.has(c.id)) continue;
+      usedM.add(c.mesh);
+      usedP.add(c.id);
+      won.push(c);
+      if (won.length === parts.length) break;
+    }
+    return won;
+  };
+
+  const refreshButton = () => {
+    if (!buttonLatched) {
+      const won = bestAssignment();
+      buttonLatched =
+        won.length === parts.length &&
+        won.every(
+          (w) =>
+            w.iou >= TURTLE.showIou &&
+            w.ratio >= TURTLE.showRatioMin &&
+            w.ratio <= TURTLE.showRatioMax,
+        );
+    }
+    setThumbHit(phase === 'cut' && buttonLatched);
+  };
+
+  const forget = (mesh: THREE.Mesh) => {
+    const i = frags.indexOf(mesh);
+    if (i >= 0) frags.splice(i, 1);
+  };
+
+  const beginInstall = () => {
+    if (phase !== 'cut' || !buttonLatched) return;
+    const won = bestAssignment();
+    if (won.length < 1) return;
     phase = 'install';
     t = 0;
     setThumbHit(false);
-    placePattern(false);
+    placePattern('full');
     opts.haltFly();
-    for (const m of candidates) {
-      opts.physics.removeMesh(m);
-      if (m !== mesh) m.visible = false;
-    }
-    stars = starRank(scored.iou, cuts);
-    install = {
-      mesh,
-      from: mesh.position.clone(),
-      to: scored.to,
-      fromQ: mesh.quaternion.clone(),
-      toQ: scored.q,
-      u: 0,
-    };
+    const ious: number[] = [];
+    const colors: number[] = [];
+    const seated = new Set<THREE.Mesh>();
+    installs = won.map((w) => {
+      const part = parts.find((p) => p.id === w.id)!;
+      const scored = seatOnto(w.mesh, part.poly);
+      ious.push(scored.iou);
+      colors.push(part.dark == null ? 1 : colorHit(w.mesh, part.dark));
+      seated.add(w.mesh);
+      opts.physics.removeMesh(w.mesh);
+      const slot = slots.get(w.id);
+      if (slot) slot.visible = false;
+      return {
+        mesh: w.mesh,
+        from: w.mesh.position.clone(),
+        to: scored.to,
+        fromQ: w.mesh.quaternion.clone(),
+        toQ: scored.q,
+        u: 0,
+      };
+    });
+    const shape = ious.reduce((s, n) => s + n, 0) / ious.length;
+    const color = colors.reduce((s, n) => s + n, 0) / colors.length;
+    stars = starRank(shape, color);
   };
 
   hit.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
-    if (phase === 'cut' && cuts >= 1) beginInstall();
+    if (phase === 'cut' && buttonLatched) beginInstall();
   });
 
   return {
     phase: () => phase,
     canCut: () => phase === 'cut',
     cuts: () => cuts,
-    onCut: (keep, drop) => {
+    level: () => level,
+    forget,
+    onCut: (a, b) => {
       if (phase !== 'cut') return 'ok';
-      lastKeep = keep;
-      lastDrop = drop;
+      for (const mesh of [a, b]) {
+        mesh.userData.puzzleRole = 'stock';
+        frags.push(mesh);
+      }
       cuts += 1;
-      setSteps(cuts);
-      setThumbHit(cuts >= 1);
-      if (cuts >= PUZZLE.maxCuts) return 'submit';
+      refreshButton();
       return 'ok';
     },
     requestInstall: () => beginInstall(),
     step: (dt) => {
       t += dt;
       if (phase === 'show') {
-        placePattern(false);
-        if (t >= PUZZLE.showDur) beginCut();
+        placePattern('full');
+        if (t >= PUZZLE.showDur) startFly();
         return;
       }
-      if (phase === 'install' && install) {
-        install.u = Math.min(1, install.u + dt / PUZZLE.installDur);
-        const u = 1 - (1 - install.u) ** 2;
-        install.mesh.position.lerpVectors(install.from, install.to, u);
-        install.mesh.quaternion.slerpQuaternions(install.fromQ, install.toQ, u);
-        if (install.u >= 1) {
+      if (phase === 'fly' && fly) {
+        fly.u = Math.min(1, fly.u + dt / 0.48);
+        const u = 1 - (1 - fly.u) ** 3;
+        board.position.lerpVectors(fly.from, fly.to, u);
+        const s = fly.fromS + (fly.toS - fly.fromS) * u;
+        board.scale.setScalar(s);
+        if (fly.u >= 1) {
+          fly = null;
+          beginCut();
+        }
+        return;
+      }
+      if (phase === 'install' && installs.length) {
+        let done = true;
+        for (const install of installs) {
+          install.u = Math.min(1, install.u + dt / PUZZLE.installDur);
+          const u = 1 - (1 - install.u) ** 2;
+          install.mesh.position.lerpVectors(install.from, install.to, u);
+          install.mesh.quaternion.slerpQuaternions(install.fromQ, install.toQ, u);
+          if (install.u < 1) done = false;
+        }
+        if (done) {
           phase = 'inspect';
           t = 0;
         }
@@ -381,24 +584,32 @@ export function createCutPuzzle(opts: {
         if (t >= PUZZLE.scoreDur) {
           starsEl.classList.remove('is-on');
           starsEl.dataset.n = '0';
-          install = null;
+          installs = [];
           t = 0;
           opts.clearBoard();
-          setSteps(0);
+          level = level === 'butterfly' ? 'turtle' : 'butterfly';
+          mountLevel();
           phase = 'show';
-          placePattern(false);
+          placePattern('full');
         }
       }
     },
     dispose: () => {
       hit.remove();
-      stepsEl.remove();
+      hud.remove();
+      preview.remove();
+      sparkles.remove();
       starsEl.remove();
       opts.scene.remove(board);
-      pattern.geometry.dispose();
-      tray.geometry.dispose();
-      trayFace.dispose();
-      trayEdge.dispose();
+      for (const mesh of slots.values()) mesh.geometry.dispose();
+      for (const mesh of extras) mesh.geometry.dispose();
+      card.geometry.dispose();
+      (card.material as THREE.Material).dispose();
+      eyeMat.dispose();
+      shadowFace.dispose();
+      shadowEdge.dispose();
+      headFace.dispose();
+      headEdge.dispose();
     },
   };
 }

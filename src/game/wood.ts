@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { pieceVolume } from './bladeForce';
 import { CUT, CYL, VIEW, WOOD, bevelInset, viewHalfH, woodSize } from './design';
+import { TURTLE, turtleInkTexture } from './turtleLevel';
 import { createSolidCylinderMesh } from './solid3d';
 import { createCucumberSkinTexture } from './cucumberLook';
 import woodGrainUrl from '../assets/wood-grain.jpg';
@@ -189,6 +190,8 @@ export type WoodSet = {
   edgeMat: THREE.MeshLambertMaterial;
   spawn: (next?: boolean) => void;
   spawnSquare: () => void;
+  spawnDisc: () => void;
+  spawnSolidDisc: (color: number, edge: number) => void;
   clear: () => void;
   forget: (mesh: THREE.Mesh) => void;
   track: (mesh: THREE.Mesh) => void;
@@ -326,12 +329,73 @@ export function createWoodSet(
     spawned.push(mesh);
   };
 
+  let ink: THREE.CanvasTexture | null = null;
+  const spawnDisc = () => {
+    clear();
+    const size = woodSize();
+    const profile = circleProfileAt(0, 0, TURTLE.r, 40);
+    const depth = size.depth;
+    const geom =
+      createWoodSolid(profile, depth, bevelInset(depth)) ??
+      createWoodGeometry(TURTLE.r * 2, TURTLE.r * 2, depth);
+    if (!ink) ink = turtleInkTexture();
+    const face = new THREE.MeshLambertMaterial({
+      color: 0xffffff,
+      map: ink,
+    });
+    const edge = new THREE.MeshLambertMaterial({ color: 0x145c28 });
+    const mesh = new THREE.Mesh(geom, [face, edge]);
+    mesh.userData.profile =
+      (geom.userData.profile as Poly2[] | undefined) ?? profile;
+    mesh.userData.depth = depth;
+    mesh.userData.puzzleRole = 'stock';
+    mesh.geometry.computeBoundingBox();
+    const bb = mesh.geometry.boundingBox;
+    const minY = bb ? bb.min.y : 0;
+    mesh.position.set(0, viewHalfH() + CUT.enterPad - minY, 0);
+    mesh.userData.originVolume = pieceVolume(mesh);
+    scene.add(mesh);
+    prepareCuttable(mesh);
+    physics.addMesh(mesh, 'staticConvex');
+    cuttables.push(mesh);
+    spawned.push(mesh);
+  };
+
+  const spawnSolidDisc = (color: number, edgeColor: number) => {
+    clear();
+    const size = woodSize();
+    const profile = circleProfileAt(0, 0, TURTLE.r, 40);
+    const depth = size.depth;
+    const geom =
+      createWoodSolid(profile, depth, bevelInset(depth)) ??
+      createWoodGeometry(TURTLE.r * 2, TURTLE.r * 2, depth);
+    const face = new THREE.MeshLambertMaterial({ color });
+    const edge = new THREE.MeshLambertMaterial({ color: edgeColor });
+    const mesh = new THREE.Mesh(geom, [face, edge]);
+    mesh.userData.profile =
+      (geom.userData.profile as Poly2[] | undefined) ?? profile;
+    mesh.userData.depth = depth;
+    mesh.userData.puzzleRole = 'stock';
+    mesh.geometry.computeBoundingBox();
+    const bb = mesh.geometry.boundingBox;
+    const minY = bb ? bb.min.y : 0;
+    mesh.position.set(0, viewHalfH() + CUT.enterPad - minY, 0);
+    mesh.userData.originVolume = pieceVolume(mesh);
+    scene.add(mesh);
+    prepareCuttable(mesh);
+    physics.addMesh(mesh, 'staticConvex');
+    cuttables.push(mesh);
+    spawned.push(mesh);
+  };
+
   return {
     cuttables,
     faceMat: matFace,
     edgeMat: matEdge,
     spawn,
     spawnSquare,
+    spawnDisc,
+    spawnSolidDisc,
     clear,
     forget,
     track,
@@ -347,6 +411,7 @@ export function createWoodSet(
       cylSkin.dispose();
       cylSkinMap.dispose();
       cylFlesh.dispose();
+      ink?.dispose();
     },
   };
 }

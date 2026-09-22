@@ -76,6 +76,8 @@ export function applyBladeImpulse(
     true,
   );
 
+  const landed = body.linvel();
+  body.setLinvel({ x: landed.x, y: landed.y, z: Math.min(landed.z, -1.4) }, true);
   const lv = body.linvel();
   const speed = Math.hypot(lv.x, lv.y, lv.z);
   if (speed > PHYS.maxSpeed && speed > 1e-6) {

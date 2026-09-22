@@ -1,7 +1,7 @@
 # 划切玩法规范
 
 参数真源：`src/game/design.ts`。手感只改那里。不要在其它模块再写魔法数。  
-**玩家面对的关卡循环**见 [CUT-PUZZLE.md](./CUT-PUZZLE.md)。本文是刀、轮廓切开、倒角；拼图关不走图库轮换，也不走「切到 1/10 两块都飞换下一板」。
+**玩家面对的关卡循环**见 [CUT-PUZZLE.md](./CUT-PUZZLE.md)。本文是刀、轮廓切开、倒角；拼图关不走图库轮换，也不走「切到 1/10 两块都飞换下一板」。拼图关不限刀，切开的块都留下。
 
 调研：[SLASH-RESEARCH.md](./SLASH-RESEARCH.md)（玩法参考）、[SLASH-TECH.md](./SLASH-TECH.md)（连续切输入）。  
 意图：[SLASH-INTENT.md](./SLASH-INTENT.md)（入点 A / 补切 / 余势 / 刀光 / 夹缝）。  
@@ -100,17 +100,18 @@
 
 ## 外观
 
-相机 `(0, 0, cameraZ)` 看原点。背景是贴图板 + 投影层，不是程序水色。
+相机 `(0, 0, cameraZ)` 看原点。拼图关背景是浅蓝纯色板 + 投影层。`bg-dojo.jpg` 不再贴上。
 
 ### 背景与投影
 
 | 项 | 位置 / 默认 | 说明 |
 |----|-------------|------|
-| 贴图 | `src/assets/bg-dojo.jpg` | 红色青海波；`MeshBasicMaterial` 不吃光 |
+| 底 | `backdrop.ts`，`VIEW.bg` `#4db8ff` | `MeshBasicMaterial` 纯色，不吃光 |
 | 接影 | `ShadowMaterial`，`VIEW.bgZ` **-0.28** | 木板 `castShadow`，影子落在板后 |
+| 台面 | `slashPhysics.ts` | 板后一块碰撞体。只有飞走的边角落到上面 |
 | `VIEW.shadowOpacity` | 0.38 | 影子浓度 |
-| `VIEW.bgEdge` | `#5c1814` | `scene.background` / letterbox |
-| CSS | `--stage-bg` `#c44a3a`、`--shell-bg` `#4a1512` | 与红底对齐 |
+| `VIEW.bgEdge` | `#3aa8f5` | `scene.background` / letterbox |
+| CSS | `--stage-bg` `#4db8ff`、`--shell-bg` `#2f8fe0` | 与浅蓝纯色对齐 |
 
 ### 木头材质（未上漆 = Lambert）
 

@@ -35,17 +35,21 @@ export function mountBackdropPlane(
 
   const art = new THREE.Mesh(
     geom,
-    new THREE.MeshBasicMaterial({ map: tex, depthWrite: true }),
+    new THREE.MeshBasicMaterial({
+      color: VIEW.bg,
+      depthWrite: true,
+    }),
   );
   art.position.z = z;
   art.renderOrder = -2;
   scene.add(art);
+  void tex;
 
   const catcher = new THREE.Mesh(
     geom,
     new THREE.ShadowMaterial({
-      color: 0x2a0808,
-      opacity: VIEW.shadowOpacity,
+      color: 0x1a4a78,
+      opacity: VIEW.shadowOpacity * 0.55,
       transparent: true,
       depthWrite: false,
     }),

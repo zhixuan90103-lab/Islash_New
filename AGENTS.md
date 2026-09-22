@@ -8,8 +8,8 @@
 
 **TypeScript + Three.js WebGPU + Vite + Capacitor iOS** 竖屏。  
 设计空间 **390×844** contain letterbox；`base: './'`。  
-当前玩法：看缺角圆 → 方板入场 → 划穿削出缺块 → 镶回打分。  
-滑动=刀；大块留下，小块飞出。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。
+当前玩法：用关卡给的一张料，把指定零件裁出来装进完成图案（准了爽，不准也好看；都能过关）。规范：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。第一关蝴蝶，第二关乌龟。不限刀。  
+滑动=刀。拼贴关不限刀数，切开的都留下、都能再切；指定轮廓齐了才从下方点按钮自动装。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。
 
 ## 入口地图
 
@@ -30,7 +30,7 @@
 | 划切规范 | `docs/SLASH-DESIGN.md`（参数 `src/game/design.ts`） |
 | 打击感 | `docs/SLASH-FEEL.md`（`SHAKE` `FX` `TRAIL`；`screenShake.ts`；划痕 `slashTrail.ts`） |
 | 意图识别 | `docs/SLASH-INTENT.md`（`slashIntent.ts`；余势 `slashFollow.ts`） |
-| 关卡背景 + 投影 | `src/game/backdrop.ts`（贴图 `src/assets/bg-dojo.jpg`） |
+| 关卡背景 + 投影 | `src/game/backdrop.ts`（浅蓝纯色，不用道场贴图） |
 | 灯光 | `src/game/lights.ts`（参数 `LIGHT`） |
 | 进度条 | `src/game/cutProgressHud.ts`（拼图关已隐藏） |
 | 划切调研 | `docs/SLASH-RESEARCH.md` |
@@ -79,13 +79,13 @@ npm run ios           # build + sync + 开 Xcode
 
 - 玩法循环：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；刀：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md) + [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；打击感：[docs/SLASH-FEEL.md](docs/SLASH-FEEL.md)（入板锁 A、出板清、板心不锁；帮助指出 B；乱划 1.5 倍钉死到出板；余势拦弧线，短距离尖角才第二刀；有效刀钉到抬起）  
 - 保留：adapt / create-renderer / haptics / plugins / `base`  
-- 触控：整屏走刀，只对木板判切；可同时按下最多 3 指，**有效刀只有一把**（误触按着不动不挡真滑；成为有效刀后直到抬起）。交卷是点缩略图。  
-- UI：只挂 `#ui-root`（缩略图热区 + 星；进度条 / 调试面板不显示）  
+- 触控：整屏走刀，只对料判切；可同时按下最多 3 指，**有效刀只有一把**。指定零件轮廓齐了，下方出「装上」，点了才自动装。按钮样子仍可再改。  
+- UI：只挂 `#ui-root`；进度条 / 调试面板不显示。画面是轻松浅蓝纯色，见 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。  
 - 音效：`src/audio/gameAudio.ts` + `docs/AUDIO.md`；禁止热路径 `new Audio()` / 每发一次桥  
 
 ## 刻意不做
 
-- 第二关尚未做；不要默默接回图库轮换 / 完成切割换板  
+- 不要默默接回图库轮换 / 完成切割换板。关卡顺序是蝴蝶，然后乌龟  
 - 连击 / 其它手势族  
 - 伪造「重侧下垂」力矩  
 - 整板锥台、3D CSG 切倒角网格  

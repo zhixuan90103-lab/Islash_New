@@ -67,7 +67,7 @@ HUD 状态行有 `plugin: true/false`。`false` = 仍在默认 `CAPBridgeViewCon
 | 启动 / 场景 | `index.html` + `main.ts` |
 | 划切规则与参数 | `src/game/design.ts` · [SLASH-DESIGN.md](./SLASH-DESIGN.md) |
 | 切割拼图 | `cutPuzzle.ts` · `PUZZLE` · [CUT-PUZZLE.md](./CUT-PUZZLE.md) |
-| 方板 / 缺角圆倒角 | `wood.spawnSquare` · `createChamferedSolid` |
+| 方板 / 双槽六边形 | `wood.spawnSquare` · `cutPuzzle.ts` · `createChamferedSolid` |
 | 圆柱 3D | `src/game/solid3d.ts` · `CYL` |
 | 圆柱 3D 切（已落地） | [CYLINDER-CUT.md](./CYLINDER-CUT.md) |
 | 意图 / 入点 / 余势 / 夹缝 / 乱划 / 有效刀 | `START` `FLASH` · `slashFollow.ts` · [SLASH-INTENT.md](./SLASH-INTENT.md) |

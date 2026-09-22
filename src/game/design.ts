@@ -78,14 +78,17 @@ export function boardCutProgress(
 export const CUT_DEFAULT = { ...CUT };
 
 /**
- * 切割拼图第一关（docs/CUT-PUZZLE.md）。
- * 图：圆缺右上角；母料：方板。
+ * 切割拼图（docs/CUT-PUZZLE.md）。
+ * 第一关：蝴蝶，纯粉圆。第二关：乌龟，两色圆。刀数不限。
  */
 export const PUZZLE = {
   showDur: 2.2,
   thumbScale: 0.22,
+  /** 切的时候图在上方缩小，比料小一截，认槽但不描边。 */
+  cutViewScale: 0.4,
+  cutViewX: 1.02,
+  cutViewY: 1.42,
   patternR: 0.92,
-  /** 缩略图放在画面右上（世界 XY）。 */
   thumbX: 0.95,
   thumbY: 2.18,
   cleanCuts: 2,
@@ -148,15 +151,15 @@ export const FINALE_DEFAULT = { ...FINALE };
 export const VIEW = {
   fov: 45,
   cameraZ: 6.2,
-  /** letterbox / 场景底色（红色青海波背景）。 */
-  bg: 0xc44a3a,
-  bgCenter: 0xe07058,
-  bgEdge: 0x5c1814,
+  /** letterbox / 场景底色（轻松浅蓝纯色）。 */
+  bg: 0x4db8ff,
+  bgCenter: 0x6ec8ff,
+  bgEdge: 0x3aa8f5,
   woodColor: 0xf0c48a,
   /** 侧面 / 倒角底色，主要靠灯光打出厚度。 */
   woodChamfer: 0xe8c49a,
-  hemiSky: 0xfff6ea,
-  hemiGround: 0x8a5a40,
+  hemiSky: 0xe8f6ff,
+  hemiGround: 0x7ab0d8,
   keyColor: 0xfff3dc,
   fillColor: 0xfff8f2,
   /** 背景接影平面（木板在 z≈0 后面）。越靠近板，影子贴得越近。 */
@@ -355,7 +358,9 @@ export const FLASH = {
  * 力度：Δv ≈ impulseBase * kickToSpeed * 滑速系数，J = mass * Δv。
  */
 export const PHYS = {
-  gravityY: -10.6,
+  gravityY: -2.4,
+  /** 朝桌面（-Z）。边角落到台面上停住。 */
+  gravityZ: -8,
   density: 2.6,
   friction: 0.85,
   restitution: 0.04,

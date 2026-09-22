@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { PHYS } from './design';
+import { PHYS, VIEW } from './design';
 
 export type PhysBody = {
   mesh: THREE.Mesh;
@@ -94,8 +94,13 @@ function geomVerts(mesh: THREE.Mesh): Float32Array {
 
 export async function createSlashPhysics(): Promise<SlashPhysics> {
   await RAPIER.init();
-  const gravity = { x: 0, y: PHYS.gravityY, z: 0 };
+  const gravity = { x: 0, y: PHYS.gravityY, z: PHYS.gravityZ };
   const world = new RAPIER.World(gravity);
+  const table = RAPIER.ColliderDesc.cuboid(8, 12, 0.08)
+    .setTranslation(0, 0, VIEW.bgZ - 0.08)
+    .setFriction(PHYS.friction)
+    .setRestitution(0.02);
+  world.createCollider(table);
   const bodies: PhysBody[] = [];
 
   const addMesh: SlashPhysics['addMesh'] = (mesh, kind) => {
@@ -106,6 +111,7 @@ export async function createSlashPhysics(): Promise<SlashPhysics> {
     const desc = dynamic
       ? RAPIER.RigidBodyDesc.dynamic()
           .setCanSleep(true)
+          .setCcdEnabled(true)
           .setLinearDamping(PHYS.linearDamping)
           .setAngularDamping(PHYS.angularDamping)
       : RAPIER.RigidBodyDesc.fixed();

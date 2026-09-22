@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { applyBladeImpulse, pieceVolume } from './bladeForce';
 import { boardCutProgress, CUT, FINALE, FX, SHAKE, WOOD } from './design';
 import { createCutPuzzle } from './cutPuzzle';
+import { BUTTERFLY } from './butterflyLevel';
 import { mountCutProgressHud } from './cutProgressHud';
 import { createScreenShake, cutHit } from './screenShake';
 import type { PhysBody } from './slashPhysics';
@@ -72,7 +73,10 @@ export async function mountSlashWorld(
     scene,
     uiRoot: document.getElementById('ui-root'),
     physics,
-    spawnBoard: () => wood.spawnSquare(),
+    spawnBoard: () => {
+      if (puzzle.level() === 'butterfly') wood.spawnSolidDisc(BUTTERFLY.pink, BUTTERFLY.edge);
+      else wood.spawnDisc();
+    },
     clearBoard: () => wood.clear(),
     beginEnter,
     haltFly: () => halt.fly(),
@@ -88,7 +92,7 @@ export async function mountSlashWorld(
   const cancelPushed = new Set<number>();
   const boardFingers = new Set<number>();
   const pendingFly: {
-    rec: PhysBody;
+    rec?: PhysBody;
     recKeep?: PhysBody;
     keep: THREE.Mesh;
     drop: THREE.Mesh;
@@ -119,7 +123,7 @@ export async function mountSlashWorld(
   ): {
     keep: THREE.Mesh;
     drop: THREE.Mesh;
-    rec: PhysBody;
+    rec?: PhysBody;
     recKeep?: PhysBody;
   } => {
     cucumberClip.hide();
@@ -130,6 +134,26 @@ export async function mountSlashWorld(
 
     const keep = pieceVolume(a) >= pieceVolume(b) ? a : b;
     const drop = keep === a ? b : a;
+
+    const mount = (mesh: THREE.Mesh, fly: boolean, cuttable: boolean) => {
+      scene.add(mesh);
+      prepareCuttable(mesh);
+      if (fly) {
+        const rec = physics.addMesh(mesh, 'convex');
+        wood.track(mesh);
+        return rec;
+      }
+      physics.addMesh(mesh, 'staticConvex');
+      if (cuttable) wood.cuttables.push(mesh);
+      wood.track(mesh);
+      return undefined;
+    };
+
+    if (puzzle.canCut()) {
+      const recKeep = mount(keep, false, true);
+      const rec = mount(drop, false, true);
+      return { keep, drop, rec, recKeep };
+    }
 
     scene.add(keep);
     prepareCuttable(keep);
@@ -163,25 +187,27 @@ export async function mountSlashWorld(
   };
 
   const pinDrop = (p: (typeof pendingFly)[number]) => {
-    pinBody(p.rec, p.dropRest);
+    if (p.rec) pinBody(p.rec, p.dropRest);
     if (p.recKeep) pinBody(p.recKeep, p.keepRest);
   };
 
   const releaseCut = (p: (typeof pendingFly)[number]) => {
-    p.rec.body.setGravityScale(1, true);
     p.keep.position.copy(p.keepRest);
     p.drop.position.copy(p.dropRest);
     const burst = p.finish ? FX.burst * FINALE.burst : FX.burst;
-    applyBladeImpulse(
-      p.rec.body,
-      camera,
-      p.keep,
-      p.drop,
-      p.bladeDir,
-      p.hitPoint,
-      p.speedPx,
-      burst,
-    );
+    if (p.rec) {
+      p.rec.body.setGravityScale(1, true);
+      applyBladeImpulse(
+        p.rec.body,
+        camera,
+        p.keep,
+        p.drop,
+        p.bladeDir,
+        p.hitPoint,
+        p.speedPx,
+        burst,
+      );
+    }
     if (p.recKeep) {
       p.recKeep.body.setGravityScale(1, true);
       applyBladeImpulse(
@@ -255,6 +281,10 @@ export async function mountSlashWorld(
     const finish = puzzle.canCut()
       ? false
       : keepVol < originVol * CUT.finishRemain;
+    if (puzzle.canCut()) puzzle.forget(commit.mesh);
+    const judged = puzzle.canCut()
+      ? puzzle.onCut(result.a, result.b)
+      : 'ok';
     const pieces = replaceCut(commit.mesh, result.a, result.b, finish);
     const hit = cutHit(speedPx, dropVol, keepVol);
     const freeze = finish
@@ -308,7 +338,13 @@ export async function mountSlashWorld(
       pieces.drop.id,
     );
     if (finish) enter = null;
-    else if (enter) enter.meshId = pieces.keep.id;
+    else if (puzzle.canCut()) {
+      const stock = [pieces.keep, pieces.drop].find(
+        (m) => m.userData.puzzleRole !== 'scrap',
+      );
+      if (stock && enter) enter.meshId = stock.id;
+      else enter = null;
+    } else if (enter) enter.meshId = pieces.keep.id;
     const crack2 =
       crackAlongStroke(
         wood.cuttables,
@@ -328,10 +364,7 @@ export async function mountSlashWorld(
     const sizeK = Math.min(1, (2 * dropVol) / Math.max(1e-12, dropVol + keepVol));
     gameAudio.crack({ speedPx, sizeK, finish });
     if (boardFingers.size <= 1) gameAudio.resetSlide();
-    if (
-      puzzle.canCut() &&
-      puzzle.onCut(pieces.keep, pieces.drop) === 'submit'
-    ) {
+    if (puzzle.canCut() && judged === 'submit') {
       submitAfterFly = true;
     }
     report(finish ? '完成切割' : '已切开');
