@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { DESIGN_HEIGHT, DESIGN_WIDTH } from '../adapt/design';
-import { bevelInset, PUZZLE, viewHalfH, woodSize } from './design';
+import { PAPER, PUZZLE, viewHalfH } from './design';
 import { type Poly2 } from './woodProfile';
 import { createChamferedSolid } from './woodChamfer';
 import {
@@ -14,7 +14,7 @@ import {
 import { BUTTERFLY, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
 import type { SlashPhysics } from './slashPhysics';
 
-export type PuzzlePhase = 'show' | 'fly' | 'cut' | 'install' | 'inspect' | 'score';
+export type PuzzlePhase = 'show' | 'fly' | 'cut' | 'place' | 'install' | 'inspect' | 'score';
 
 export type PieceRole = 'stock';
 
@@ -23,7 +23,7 @@ export type CutPuzzle = {
   canCut: () => boolean;
   cuts: () => number;
   level: () => 'turtle' | 'butterfly';
-  /** 记下这一刀的两块。不限刀数，不自动交卷。 */
+  /** 记下这一刀的两块，并扣一步。步数用完后不再能切。 */
   onCut: (a: THREE.Mesh, b: THREE.Mesh) => 'ok' | 'submit';
   forget: (mesh: THREE.Mesh) => void;
   requestInstall: () => void;
@@ -104,28 +104,6 @@ function bestTurn(poly: Poly2[], slot: Poly2[]): { a: number; iou: number } {
   return { a: bestA, iou: best };
 }
 
-/** 转到图纸上该零件的朝向，再把重心平移过去。 */
-function seatOnto(
-  mesh: THREE.Mesh,
-  slot: Poly2[],
-): { to: THREE.Vector3; q: THREE.Quaternion; iou: number } {
-  mesh.updateMatrixWorld(true);
-  const poly = worldPoly(mesh);
-  const cK = polyCentroid(poly);
-  const cT = polyCentroid(slot);
-  const turned = bestTurn(poly, slot);
-  const co = Math.cos(turned.a);
-  const si = Math.sin(turned.a);
-  const dx = mesh.position.x - cK.x;
-  const dy = mesh.position.y - cK.y;
-  const qDelta = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), turned.a);
-  return {
-    to: new THREE.Vector3(cT.x + dx * co - dy * si, cT.y + dx * si + dy * co, mesh.position.z),
-    q: qDelta.multiply(mesh.quaternion.clone()),
-    iou: turned.iou,
-  };
-}
-
 function colorHit(mesh: THREE.Mesh, wantDark: boolean): number {
   const raw = (mesh.userData.profile as Poly2[] | undefined) ?? [];
   if (raw.length < 3) return 0;
@@ -138,6 +116,10 @@ function colorHit(mesh: THREE.Mesh, wantDark: boolean): number {
   }
   return n === 0 ? 0 : hit / n;
 }
+
+const _ray = new THREE.Raycaster();
+const _plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const _hit = new THREE.Vector3();
 
 function pointInPoly(x: number, y: number, poly: Poly2[]): boolean {
   let inside = false;
@@ -168,9 +150,9 @@ function makePartMesh(
   face: THREE.Material,
   edge: THREE.Material,
 ): THREE.Mesh {
-  const depth = woodSize().depth;
+  const depth = PAPER.depth;
   const geom =
-    createChamferedSolid(profile, depth, bevelInset(depth)) ??
+    createChamferedSolid(profile, depth, PAPER.edgeInset) ??
     new THREE.CircleGeometry(TURTLE.r, 20);
   const mesh = new THREE.Mesh(geom, [face, edge]);
   mesh.castShadow = true;
@@ -196,6 +178,7 @@ export function createCutPuzzle(opts: {
   clearBoard: () => void;
   beginEnter: () => void;
   haltFly: () => void;
+  camera: THREE.Camera;
   faceMat: THREE.MeshLambertMaterial;
   edgeMat: THREE.MeshLambertMaterial;
 }): CutPuzzle {
@@ -249,7 +232,7 @@ export function createCutPuzzle(opts: {
       slots.set(part.id, mesh);
       board.add(mesh);
     }
-    const z = woodSize().depth * 0.55;
+    const z = PAPER.depth * 0.7;
     if (level === 'turtle') {
       const head = makePartMesh(turtleHeadPoly(), headFace, headEdge);
       extras.push(head);
@@ -297,7 +280,15 @@ export function createCutPuzzle(opts: {
   const chipInner = document.createElement('div');
   chipInner.className = 'puzzle-art-chip-inner';
   chip.appendChild(chipInner);
-  hud.append(chip);
+  const stepsEl = document.createElement('div');
+  stepsEl.className = 'puzzle-move';
+  const stepsLabel = document.createElement('div');
+  stepsLabel.className = 'puzzle-move-label';
+  stepsLabel.textContent = '步';
+  const stepsNum = document.createElement('div');
+  stepsNum.className = 'puzzle-move-n';
+  stepsEl.append(stepsLabel, stepsNum);
+  hud.append(chip, stepsEl);
   hud.classList.add('is-on');
 
   const preview = document.createElement('div');
@@ -338,6 +329,7 @@ export function createCutPuzzle(opts: {
   let phase: PuzzlePhase = 'show';
   let t = 0;
   let cuts = 0;
+  let stepsLeft = 0;
   let stars = 0;
   let buttonLatched = false;
   const frags: THREE.Mesh[] = [];
@@ -352,6 +344,14 @@ export function createCutPuzzle(opts: {
 
   const setThumbHit = (on: boolean) => {
     hit.classList.toggle('is-on', on);
+  };
+
+  const stepBudget = () =>
+    level === 'butterfly' ? PUZZLE.stepsButterfly : PUZZLE.stepsTurtle;
+
+  const paintSteps = () => {
+    stepsNum.textContent = String(Math.max(0, stepsLeft));
+    stepsEl.classList.toggle('is-on', phase === 'cut');
   };
 
   const hudPose = () => {
@@ -421,9 +421,11 @@ export function createCutPuzzle(opts: {
     phase = 'cut';
     t = 0;
     cuts = 0;
+    stepsLeft = stepBudget();
     resetPieces();
     for (const mesh of slots.values()) mesh.visible = true;
     placePattern('cut');
+    paintSteps();
     setThumbHit(false);
     opts.spawnBoard();
     opts.beginEnter();
@@ -471,7 +473,9 @@ export function createCutPuzzle(opts: {
             w.ratio <= TURTLE.showRatioMax,
         );
     }
+    if (phase === 'cut' && stepsLeft <= 0) buttonLatched = true;
     setThumbHit(phase === 'cut' && buttonLatched);
+    paintSteps();
   };
 
   const forget = (mesh: THREE.Mesh) => {
@@ -481,48 +485,187 @@ export function createCutPuzzle(opts: {
 
   const beginInstall = () => {
     if (phase !== 'cut' || !buttonLatched) return;
-    const won = bestAssignment();
-    if (won.length < 1) return;
-    phase = 'install';
+    phase = 'place';
     t = 0;
-    setThumbHit(false);
+    paintSteps();
     placePattern('full');
     opts.haltFly();
+    const lift = PAPER.depth * 2;
+    for (const mesh of frags) {
+      opts.physics.removeMesh(mesh);
+      mesh.position.z = lift;
+    }
+    hit.textContent = '完成';
+    setThumbHit(true);
+  };
+
+  const finishPlace = () => {
+    if (phase !== 'place') return;
+    const live = frags.filter(
+      (m) => ((m.userData.profile as Poly2[] | undefined)?.length ?? 0) >= 3,
+    );
+    const cands: { mesh: THREE.Mesh; id: string; iou: number }[] = [];
+    for (const mesh of live) {
+      mesh.updateMatrixWorld(true);
+      const poly = worldPoly(mesh);
+      for (const part of parts) {
+        cands.push({ mesh, id: part.id, iou: rasterIou(poly, part.poly) });
+      }
+    }
+    cands.sort((a, b) => b.iou - a.iou);
+    const usedM = new Set<THREE.Mesh>();
+    const usedP = new Set<string>();
+    const won = new Map<string, { mesh: THREE.Mesh; iou: number }>();
+    for (const c of cands) {
+      if (usedM.has(c.mesh) || usedP.has(c.id)) continue;
+      usedM.add(c.mesh);
+      usedP.add(c.id);
+      won.set(c.id, { mesh: c.mesh, iou: c.iou });
+    }
     const ious: number[] = [];
     const colors: number[] = [];
-    const seated = new Set<THREE.Mesh>();
-    installs = won.map((w) => {
-      const part = parts.find((p) => p.id === w.id)!;
-      const scored = seatOnto(w.mesh, part.poly);
-      ious.push(scored.iou);
-      colors.push(part.dark == null ? 1 : colorHit(w.mesh, part.dark));
-      seated.add(w.mesh);
-      opts.physics.removeMesh(w.mesh);
-      const slot = slots.get(w.id);
-      if (slot) slot.visible = false;
-      return {
-        mesh: w.mesh,
-        from: w.mesh.position.clone(),
-        to: scored.to,
-        fromQ: w.mesh.quaternion.clone(),
-        toQ: scored.q,
-        u: 0,
-      };
-    });
-    const shape = ious.reduce((s, n) => s + n, 0) / ious.length;
-    const color = colors.reduce((s, n) => s + n, 0) / colors.length;
+    for (const part of parts) {
+      const got = won.get(part.id);
+      ious.push(got?.iou ?? 0);
+      if (!got) colors.push(0);
+      else colors.push(part.dark == null ? 1 : colorHit(got.mesh, part.dark));
+      const slot = slots.get(part.id);
+      if (slot && (got?.iou ?? 0) > 0.2) slot.visible = false;
+    }
+    const shape = ious.reduce((s, n) => s + n, 0) / Math.max(1, ious.length);
+    const color = colors.reduce((s, n) => s + n, 0) / Math.max(1, colors.length);
     stars = starRank(shape, color);
+    phase = 'inspect';
+    t = 0;
+    fingers.clear();
+    spin = null;
+    if (held) held.position.z = PAPER.depth * 2;
+    held = null;
+    hit.textContent = '装上';
+    setThumbHit(false);
   };
 
   hit.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
     if (phase === 'cut' && buttonLatched) beginInstall();
+    else if (phase === 'place') finishPlace();
   });
+
+  const stage = document.getElementById('stage');
+  const fingers = new Map<number, { x: number; y: number }>();
+  let held: THREE.Mesh | null = null;
+  let spin: { ang: number } | null = null;
+
+  const pairAngle = () => {
+    const pts = [...fingers.values()];
+    if (pts.length < 2) return null;
+    const a = pts[0];
+    const b = pts[1];
+    return {
+      ang: Math.atan2(b.y - a.y, b.x - a.x),
+      x: (a.x + b.x) * 0.5,
+      y: (a.y + b.y) * 0.5,
+    };
+  };
+
+  const spinHeld = (dA: number, px: number, py: number) => {
+    if (!held) return;
+    const dx = held.position.x - px;
+    const dy = held.position.y - py;
+    const co = Math.cos(dA);
+    const si = Math.sin(dA);
+    held.position.x = px + dx * co - dy * si;
+    held.position.y = py + dx * si + dy * co;
+    held.rotateZ(dA);
+  };
+
+  const worldOnPlane = (e: PointerEvent): { x: number; y: number } | null => {
+    if (!stage) return null;
+    const r = stage.getBoundingClientRect();
+    const w = r.width || 1;
+    const h = r.height || 1;
+    const ndcX = ((e.clientX - r.left) / w) * 2 - 1;
+    const ndcY = -(((e.clientY - r.top) / h) * 2 - 1);
+    _ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), opts.camera);
+    if (!_ray.ray.intersectPlane(_plane, _hit)) return null;
+    return { x: _hit.x, y: _hit.y };
+  };
+
+  const pickFrag = (x: number, y: number): THREE.Mesh | null => {
+    let best: THREE.Mesh | null = null;
+    let bestArea = Infinity;
+    for (const mesh of frags) {
+      mesh.updateMatrixWorld(true);
+      const poly = worldPoly(mesh);
+      if (poly.length < 3 || !pointInPoly(x, y, poly)) continue;
+      const area = polyArea(poly);
+      if (area < bestArea) {
+        best = mesh;
+        bestArea = area;
+      }
+    }
+    return best;
+  };
+
+  const onPlaceDown = (e: PointerEvent) => {
+    if (phase !== 'place' || e.button !== 0) return;
+    const at = worldOnPlane(e);
+    if (!at) return;
+    fingers.set(e.pointerId, at);
+    stage?.setPointerCapture(e.pointerId);
+    if (!held) {
+      const mesh = pickFrag(at.x, at.y);
+      if (!mesh) {
+        if (fingers.size < 2) fingers.delete(e.pointerId);
+        return;
+      }
+      held = mesh;
+      mesh.position.z = PAPER.depth * 3;
+    }
+    const pair = pairAngle();
+    if (pair && held) spin = { ang: pair.ang };
+  };
+
+  const onPlaceMove = (e: PointerEvent) => {
+    const prev = fingers.get(e.pointerId);
+    if (!prev || !held) return;
+    const at = worldOnPlane(e);
+    if (!at) return;
+    fingers.set(e.pointerId, at);
+    const pair = pairAngle();
+    if (pair && spin && fingers.size >= 2) {
+      let dA = pair.ang - spin.ang;
+      if (dA > Math.PI) dA -= Math.PI * 2;
+      if (dA < -Math.PI) dA += Math.PI * 2;
+      spinHeld(dA, pair.x, pair.y);
+      spin.ang = pair.ang;
+      return;
+    }
+    held.position.x += at.x - prev.x;
+    held.position.y += at.y - prev.y;
+  };
+
+  const onPlaceUp = (e: PointerEvent) => {
+    fingers.delete(e.pointerId);
+    spin = null;
+    if (fingers.size === 0) {
+      if (held) held.position.z = PAPER.depth * 2;
+      held = null;
+      return;
+    }
+    const pair = pairAngle();
+    if (pair && held) spin = { ang: pair.ang };
+  };
+
+  stage?.addEventListener('pointerdown', onPlaceDown);
+  stage?.addEventListener('pointermove', onPlaceMove);
+  stage?.addEventListener('pointerup', onPlaceUp);
+  stage?.addEventListener('pointercancel', onPlaceUp);
 
   return {
     phase: () => phase,
-    canCut: () => phase === 'cut',
+    canCut: () => phase === 'cut' && stepsLeft > 0,
     cuts: () => cuts,
     level: () => level,
     forget,
@@ -533,6 +676,7 @@ export function createCutPuzzle(opts: {
         frags.push(mesh);
       }
       cuts += 1;
+      stepsLeft = Math.max(0, stepsLeft - 1);
       refreshButton();
       return 'ok';
     },
@@ -597,6 +741,10 @@ export function createCutPuzzle(opts: {
     dispose: () => {
       hit.remove();
       hud.remove();
+      stage?.removeEventListener('pointerdown', onPlaceDown);
+      stage?.removeEventListener('pointermove', onPlaceMove);
+      stage?.removeEventListener('pointerup', onPlaceUp);
+      stage?.removeEventListener('pointercancel', onPlaceUp);
       preview.remove();
       sparkles.remove();
       starsEl.remove();

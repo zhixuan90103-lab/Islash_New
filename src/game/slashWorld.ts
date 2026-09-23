@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { applyBladeImpulse, pieceVolume } from './bladeForce';
-import { boardCutProgress, CUT, FINALE, FX, SHAKE, WOOD } from './design';
+import { boardCutProgress, CUT, FINALE, FX, PAPER, SHAKE, WOOD } from './design';
 import { createCutPuzzle } from './cutPuzzle';
 import { BUTTERFLY } from './butterflyLevel';
 import { mountCutProgressHud } from './cutProgressHud';
@@ -80,6 +80,7 @@ export async function mountSlashWorld(
     clearBoard: () => wood.clear(),
     beginEnter,
     haltFly: () => halt.fly(),
+    camera,
     faceMat: wood.faceMat,
     edgeMat: wood.edgeMat,
   });
@@ -115,6 +116,35 @@ export async function mountSlashWorld(
   const _zero = { x: 0, y: 0, z: 0 };
   let slowLeft = 0;
 
+  const worldCentroid = (mesh: THREE.Mesh) => {
+    const raw = mesh.userData.profile as { x: number; y: number }[] | undefined;
+    const out = mesh.position.clone();
+    if (!raw || raw.length < 3) return out;
+    mesh.updateMatrixWorld(true);
+    const e = mesh.matrixWorld.elements;
+    let x = 0;
+    let y = 0;
+    for (const p of raw) {
+      x += e[0] * p.x + e[4] * p.y + e[12];
+      y += e[1] * p.x + e[5] * p.y + e[13];
+    }
+    out.x = x / raw.length;
+    out.y = y / raw.length;
+    return out;
+  };
+
+  const openCutGap = (a: THREE.Mesh, b: THREE.Mesh) => {
+    const half = PAPER.cutGap * 0.5;
+    const ca = worldCentroid(a);
+    const cb = worldCentroid(b);
+    _squeezeN.subVectors(cb, ca);
+    _squeezeN.z = 0;
+    if (_squeezeN.lengthSq() < 1e-8) return;
+    _squeezeN.normalize();
+    a.position.addScaledVector(_squeezeN, -half);
+    b.position.addScaledVector(_squeezeN, half);
+  };
+
   const replaceCut = (
     old: THREE.Mesh,
     a: THREE.Mesh,
@@ -143,16 +173,17 @@ export async function mountSlashWorld(
         wood.track(mesh);
         return rec;
       }
-      physics.addMesh(mesh, 'staticConvex');
+      if (puzzle.canCut()) physics.addMesh(mesh, 'paper');
+      else physics.addMesh(mesh, 'staticConvex');
       if (cuttable) wood.cuttables.push(mesh);
       wood.track(mesh);
       return undefined;
     };
 
     if (puzzle.canCut()) {
-      const recKeep = mount(keep, false, true);
-      const rec = mount(drop, false, true);
-      return { keep, drop, rec, recKeep };
+      mount(keep, false, true);
+      mount(drop, false, true);
+      return { keep, drop };
     }
 
     scene.add(keep);
@@ -278,14 +309,14 @@ export async function mountSlashWorld(
     const keepVol = Math.max(volA, volB);
     const originVol =
       Number(commit.mesh.userData.originVolume) || volA + volB;
-    const finish = puzzle.canCut()
+    const puzzleCut = puzzle.canCut();
+    const finish = puzzleCut
       ? false
       : keepVol < originVol * CUT.finishRemain;
-    if (puzzle.canCut()) puzzle.forget(commit.mesh);
-    const judged = puzzle.canCut()
-      ? puzzle.onCut(result.a, result.b)
-      : 'ok';
+    if (puzzleCut) puzzle.forget(commit.mesh);
+    if (puzzleCut) openCutGap(result.a, result.b);
     const pieces = replaceCut(commit.mesh, result.a, result.b, finish);
+    const judged = puzzleCut ? puzzle.onCut(result.a, result.b) : 'ok';
     const hit = cutHit(speedPx, dropVol, keepVol);
     const freeze = finish
       ? FINALE.freeze
@@ -432,6 +463,7 @@ export async function mountSlashWorld(
 
   const input = createSlashInput(stage, getLayout, {
     onStroke: (stroke) => {
+      if (puzzle.phase() === 'place') return;
       if (stroke.points.length === 1) {
         if (syncTrails(stroke)) overlay.begin(stroke.pointerId);
         gameAudio.unlock();
@@ -440,6 +472,7 @@ export async function mountSlashWorld(
       }
     },
     onTip: (stroke, p) => {
+      if (puzzle.phase() === 'place') return;
       if (syncTrails(stroke)) {
         overlay.ensureTrail(stroke.pointerId);
         overlay.push(stroke.pointerId, p);
@@ -450,6 +483,7 @@ export async function mountSlashWorld(
       else overlay.setPredicted(stroke.pointerId, []);
     },
     onMove: (stroke, lastSeg, dtSec) => {
+      if (puzzle.phase() === 'place') return;
       if (!puzzle.canCut()) {
         boardFingers.delete(stroke.pointerId);
         return;

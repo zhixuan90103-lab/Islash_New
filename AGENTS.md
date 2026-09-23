@@ -8,8 +8,8 @@
 
 **TypeScript + Three.js WebGPU + Vite + Capacitor iOS** 竖屏。  
 设计空间 **390×844** contain letterbox；`base: './'`。  
-当前玩法：用关卡给的一张料，把指定零件裁出来装进完成图案（准了爽，不准也好看；都能过关）。规范：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。第一关蝴蝶，第二关乌龟。不限刀。  
-滑动=刀。拼贴关不限刀数，切开的都留下、都能再切；指定轮廓齐了才从下方点按钮自动装。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。
+当前玩法：用关卡给的一张料，把指定零件裁出来装进完成图案（准了爽，不准也好看；都能过关）。规范：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。第一关蝴蝶 1 步，第二关乌龟 2 步。  
+滑动=刀。贯穿切开才扣一步。切开的都留下；还有步就能再切。轮廓齐了或步数用完，从下方点按钮停刀，玩家自己把块拖上图案，两指可旋转那一块，再点完成。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。
 
 ## 入口地图
 

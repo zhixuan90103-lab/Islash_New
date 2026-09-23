@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { pieceVolume } from './bladeForce';
-import { CUT, CYL, VIEW, WOOD, bevelInset, viewHalfH, woodSize } from './design';
-import { TURTLE, turtleInkTexture } from './turtleLevel';
+import { CUT, CYL, PAPER, VIEW, WOOD, bevelInset, viewHalfH, woodSize } from './design';
+import { TURTLE, paperFaceTexture, turtleInkTexture } from './turtleLevel';
 import { createSolidCylinderMesh } from './solid3d';
 import { createCucumberSkinTexture } from './cucumberLook';
 import woodGrainUrl from '../assets/wood-grain.jpg';
@@ -64,22 +64,39 @@ export function meshFromProfile(
   depth: number,
   source: THREE.Mesh,
 ): THREE.Mesh | null {
-  const geom = createWoodSolid(profile, depth, bevelInset(depth));
+  const paper = source.userData.puzzleRole === 'stock';
+  const geom = createWoodSolid(
+    profile,
+    depth,
+    paper ? PAPER.edgeInset : bevelInset(depth),
+  );
   if (!geom) return null;
   const srcMat = source.material;
   const mat = Array.isArray(srcMat)
     ? srcMat.map((m) => m.clone())
     : (srcMat as THREE.Material).clone();
+  if (paper && Array.isArray(mat)) mat[1] = mat[0];
+  if (paper) flattenPaperRim(geom);
   const m = new THREE.Mesh(geom, mat);
   m.position.copy(source.position);
   m.quaternion.copy(source.quaternion);
   m.scale.copy(source.scale);
   m.userData.cuttable = true;
+  if (paper) m.userData.puzzleRole = 'stock';
   m.userData.profile = (geom.userData.profile as Poly2[] | undefined) ?? profile;
   m.userData.depth = depth;
   m.userData.originVolume = source.userData.originVolume;
   copySolidUserData(source, m);
   return m;
+}
+
+/** 纸的侧面不另上色，法线也朝向正面，避免切缝露出一条棱。 */
+function flattenPaperRim(geom: THREE.BufferGeometry): void {
+  const nrm = geom.getAttribute('normal');
+  const rim = geom.groups.find((g) => g.materialIndex === 1);
+  if (!nrm || !rim) return;
+  for (let i = rim.start; i < rim.start + rim.count; i++) nrm.setXYZ(i, 0, 0, 1);
+  nrm.needsUpdate = true;
 }
 
 function copySolidUserData(source: THREE.Mesh, dest: THREE.Mesh): void {
@@ -332,19 +349,17 @@ export function createWoodSet(
   let ink: THREE.CanvasTexture | null = null;
   const spawnDisc = () => {
     clear();
-    const size = woodSize();
     const profile = circleProfileAt(0, 0, TURTLE.r, 40);
-    const depth = size.depth;
+    const depth = PAPER.depth;
     const geom =
-      createWoodSolid(profile, depth, bevelInset(depth)) ??
+      createWoodSolid(profile, depth, PAPER.edgeInset) ??
       createWoodGeometry(TURTLE.r * 2, TURTLE.r * 2, depth);
     if (!ink) ink = turtleInkTexture();
     const face = new THREE.MeshLambertMaterial({
       color: 0xffffff,
       map: ink,
     });
-    const edge = new THREE.MeshLambertMaterial({ color: 0x145c28 });
-    const mesh = new THREE.Mesh(geom, [face, edge]);
+    const mesh = new THREE.Mesh(geom, [face, face]);
     mesh.userData.profile =
       (geom.userData.profile as Poly2[] | undefined) ?? profile;
     mesh.userData.depth = depth;
@@ -361,17 +376,18 @@ export function createWoodSet(
     spawned.push(mesh);
   };
 
-  const spawnSolidDisc = (color: number, edgeColor: number) => {
+  const spawnSolidDisc = (color: number, _edgeColor: number) => {
     clear();
-    const size = woodSize();
     const profile = circleProfileAt(0, 0, TURTLE.r, 40);
-    const depth = size.depth;
+    const depth = PAPER.depth;
     const geom =
-      createWoodSolid(profile, depth, bevelInset(depth)) ??
+      createWoodSolid(profile, depth, PAPER.edgeInset) ??
       createWoodGeometry(TURTLE.r * 2, TURTLE.r * 2, depth);
-    const face = new THREE.MeshLambertMaterial({ color });
-    const edge = new THREE.MeshLambertMaterial({ color: edgeColor });
-    const mesh = new THREE.Mesh(geom, [face, edge]);
+    const face = new THREE.MeshLambertMaterial({
+      color: 0xffffff,
+      map: paperFaceTexture(color),
+    });
+    const mesh = new THREE.Mesh(geom, [face, face]);
     mesh.userData.profile =
       (geom.userData.profile as Poly2[] | undefined) ?? profile;
     mesh.userData.depth = depth;

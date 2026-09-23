@@ -13,7 +13,7 @@ export type SlashPhysics = {
   bodies: PhysBody[];
   addMesh: (
     mesh: THREE.Mesh,
-    kind: 'box' | 'convex' | 'staticBox' | 'staticConvex',
+    kind: 'box' | 'convex' | 'staticBox' | 'staticConvex' | 'paper',
   ) => PhysBody;
   removeMesh: (mesh: THREE.Mesh) => void;
   setGravityY: (y: number) => void;
@@ -76,9 +76,33 @@ function centerOnVolumeCom(mesh: THREE.Mesh): void {
   mesh.updateMatrixWorld(true);
   const com = volumeCom(mesh.geometry);
   mesh.geometry.translate(-com.x, -com.y, -com.z);
+  const raw = mesh.userData.profile as { x: number; y: number }[] | undefined;
+  if (raw) {
+    for (const p of raw) {
+      p.x -= com.x;
+      p.y -= com.y;
+    }
+  }
   mesh.position.add(com);
   mesh.geometry.computeBoundingBox();
   mesh.geometry.computeBoundingSphere();
+}
+
+/** 碰撞用稍厚的棱柱，避免薄片凸包把纸掀起来。画面仍是薄纸。 */
+function paperHull(mesh: THREE.Mesh): Float32Array {
+  const raw = (mesh.userData.profile as { x: number; y: number }[] | undefined) ?? [];
+  const hz = 0.05;
+  const arr = new Float32Array(Math.max(1, raw.length) * 6);
+  raw.forEach((p, i) => {
+    arr[i * 3] = p.x;
+    arr[i * 3 + 1] = p.y;
+    arr[i * 3 + 2] = hz;
+    const j = raw.length + i;
+    arr[j * 3] = p.x;
+    arr[j * 3 + 1] = p.y;
+    arr[j * 3 + 2] = -hz;
+  });
+  return arr;
 }
 
 function geomVerts(mesh: THREE.Mesh): Float32Array {
@@ -104,17 +128,22 @@ export async function createSlashPhysics(): Promise<SlashPhysics> {
   const bodies: PhysBody[] = [];
 
   const addMesh: SlashPhysics['addMesh'] = (mesh, kind) => {
-    const dynamic = kind === 'box' || kind === 'convex';
-    if (dynamic) centerOnVolumeCom(mesh);
+    const dynamic = kind === 'box' || kind === 'convex' || kind === 'paper';
+    if (kind === 'box' || kind === 'convex') centerOnVolumeCom(mesh);
     const t = mesh.position;
     const q = mesh.quaternion;
     const desc = dynamic
       ? RAPIER.RigidBodyDesc.dynamic()
           .setCanSleep(true)
-          .setCcdEnabled(true)
-          .setLinearDamping(PHYS.linearDamping)
-          .setAngularDamping(PHYS.angularDamping)
+          .setCcdEnabled(kind !== 'paper')
+          .setLinearDamping(kind === 'paper' ? 8 : PHYS.linearDamping)
+          .setAngularDamping(kind === 'paper' ? 12 : PHYS.angularDamping)
+          .setGravityScale(kind === 'paper' ? 0 : 1)
       : RAPIER.RigidBodyDesc.fixed();
+    if (kind === 'paper') {
+      desc.restrictTranslations(true, true, false);
+      desc.lockRotations();
+    }
     desc.setTranslation(t.x, t.y, t.z);
     desc.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w });
     const body = world.createRigidBody(desc);
@@ -127,6 +156,8 @@ export async function createSlashPhysics(): Promise<SlashPhysics> {
       const hy = Math.max(0.02, (bb.max.y - bb.min.y) * 0.5);
       const hz = Math.max(0.02, (bb.max.z - bb.min.z) * 0.5);
       colliderDesc = RAPIER.ColliderDesc.cuboid(hx, hy, hz);
+    } else if (kind === 'paper') {
+      colliderDesc = RAPIER.ColliderDesc.convexHull(paperHull(mesh));
     } else {
       colliderDesc = RAPIER.ColliderDesc.convexHull(geomVerts(mesh));
     }

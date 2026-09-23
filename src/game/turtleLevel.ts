@@ -79,6 +79,40 @@ export function turtleInkTexture(): THREE.CanvasTexture {
   ctx.fillRect(0, 0, n, n);
   ctx.fillStyle = dark;
   ctx.fillRect(0, 0, n, n / 2);
+  specklePaper(ctx, n);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
+  tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function specklePaper(ctx: CanvasRenderingContext2D, n: number): void {
+  const img = ctx.getImageData(0, 0, n, n);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const j = ((i * 17) % 11) - 5;
+    d[i] = Math.min(255, Math.max(0, d[i] + j));
+    d[i + 1] = Math.min(255, Math.max(0, d[i + 1] + j));
+    d[i + 2] = Math.min(255, Math.max(0, d[i + 2] + j));
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+export function paperFaceTexture(hex: number): THREE.CanvasTexture {
+  const n = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = n;
+  canvas.height = n;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('paper face');
+  const r = (hex >> 16) & 255;
+  const g = (hex >> 8) & 255;
+  const b = hex & 255;
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
+  ctx.fillRect(0, 0, n, n);
+  specklePaper(ctx, n);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = THREE.ClampToEdgeWrapping;

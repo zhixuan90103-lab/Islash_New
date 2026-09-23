@@ -23,6 +23,15 @@ export function bevelInset(_depth: number): number {
   return WOOD_SHAPE.frontInset;
 }
 
+/** 拼图料是软卡纸。很薄，没有倒角。侧面跟正面同一颜色，不单独露棱。 */
+export const PAPER = {
+  depth: 0.007,
+  edgeInset: 0,
+  edge: 0xf7f4ee,
+  /** 切开后两块沿切缝分开的总宽度。再靠碰撞分开，不要留宽槽。 */
+  cutGap: 0.012,
+};
+
 /** 长宽高乘数，默认 1 = 保持 WOOD_SHAPE。lift 为相对画面中心的 Y。 */
 export const WOOD = {
   width: 1.75,
@@ -79,7 +88,7 @@ export const CUT_DEFAULT = { ...CUT };
 
 /**
  * 切割拼图（docs/CUT-PUZZLE.md）。
- * 第一关：蝴蝶，纯粉圆。第二关：乌龟，两色圆。刀数不限。
+ * 第一关：蝴蝶，纯粉圆，1 步。第二关：乌龟，两色圆，2 步。
  */
 export const PUZZLE = {
   showDur: 2.2,
@@ -92,6 +101,9 @@ export const PUZZLE = {
   thumbX: 0.95,
   thumbY: 2.18,
   cleanCuts: 2,
+  /** 贯穿切开才扣一步。没切开不扣。 */
+  stepsButterfly: 1,
+  stepsTurtle: 2,
   maxCuts: 3,
   installDur: 0.55,
   inspectDur: 1.15,
@@ -212,8 +224,8 @@ export const START = {
   fastDist: 60,
   /** 速度尺子：达到此 px/s 视为「满补偿」。 */
   fastSpeed: 160,
-  /** 终点：满补偿时的青线行程（0.75 = 75%）；速度 0 时为 1。 */
-  endTravelFast: 0.75,
+  /** 终点：满补偿时的青线行程（0.98 = 98%）；速度 0 时为 1（100%）。 */
+  endTravelFast: 0.98,
   /** 起点打分低于此不帮。 */
   scoreMin: 0.35,
   /**

@@ -269,6 +269,7 @@ body.native-app #shell {
 }
 
 .puzzle-move {
+  display: none;
   width: 92px;
   border-radius: 26px;
   background: linear-gradient(#5ec4ff, #2f9dff);
@@ -298,8 +299,8 @@ body.native-app #shell {
   text-shadow: 0 3px 0 rgba(20, 90, 170, 0.28);
 }
 
-.puzzle-steps {
-  display: none;
+.puzzle-move.is-on {
+  display: flex;
 }
 
 .puzzle-submit-hit {
