@@ -6,10 +6,10 @@
 
 ## 一句话
 
-**TypeScript + Three.js WebGPU + Vite + Capacitor iOS** 竖屏。  
-设计空间 **390×844** contain letterbox；`base: './'`。  
+**TypeScript + Three.js WebGPU + Vite + Capacitor iOS**。  
+竖屏 **390×844** contain letterbox。画面规范见 [docs/UI.md](docs/UI.md)。`base: './'`。  
 当前玩法：用关卡给的一张料，把指定零件裁出来装进完成图案（准了爽，不准也好看；都能过关）。规范：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。第一关蝴蝶 1 步，第二关乌龟 2 步。  
-滑动=刀。贯穿切开才扣一步。切开的都留下；还有步就能再切。轮廓齐了或步数用完，从下方点按钮停刀，玩家自己把块拖上图案，两指可旋转那一块，再点完成。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。
+滑动=刀。贯穿切开才扣一步。切开的都留下；还有步就能再切。右上角一直有步数。先看左侧笔记本剪影 2 秒，镜头自动向右进入裁剪区。轮廓齐了或步数用完，弹出「装上」，点了才停刀，切好的块跟着镜头回到笔记本再拼，两指可旋转那一块。拼完后才弹出界面。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；画面 [docs/UI.md](docs/UI.md)。
 
 ## 入口地图
 
@@ -36,6 +36,7 @@
 | 划切调研 | `docs/SLASH-RESEARCH.md` |
 | 连续切技术 | `docs/SLASH-TECH.md` |
 | 切割拼图（当前玩法） | [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md) · `cutPuzzle.ts` · `PUZZLE` |
+| 画面与界面 | [docs/UI.md](docs/UI.md) |
 | 圆柱 3D 切（管线） | [docs/CYLINDER-CUT.md](docs/CYLINDER-CUT.md)（拼图关未用图库圆柱） |
 
 ## DOM（勿拆）
@@ -79,8 +80,8 @@ npm run ios           # build + sync + 开 Xcode
 
 - 玩法循环：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；刀：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md) + [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；打击感：[docs/SLASH-FEEL.md](docs/SLASH-FEEL.md)（入板锁 A、出板清、板心不锁；帮助指出 B；乱划 1.5 倍钉死到出板；余势拦弧线，短距离尖角才第二刀；有效刀钉到抬起）  
 - 保留：adapt / create-renderer / haptics / plugins / `base`  
-- 触控：整屏走刀，只对料判切；可同时按下最多 3 指，**有效刀只有一把**。指定零件轮廓齐了，下方出「装上」，点了才自动装。按钮样子仍可再改。  
-- UI：只挂 `#ui-root`；进度条 / 调试面板不显示。画面是轻松浅蓝纯色，见 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。  
+- 触控：整屏走刀，只对料判切；可同时按下最多 3 指，**有效刀只有一把**。指定零件轮廓齐了或步数用完，出「装上」，点了才停刀，块跟着镜头回到笔记本，玩家自己摆。拼完后才弹出界面。  
+- UI：只挂 `#ui-root`；进度条 / 调试面板不显示。画面规范 [docs/UI.md](docs/UI.md)。  
 - 音效：`src/audio/gameAudio.ts` + `docs/AUDIO.md`；禁止热路径 `new Audio()` / 每发一次桥  
 
 ## 刻意不做
