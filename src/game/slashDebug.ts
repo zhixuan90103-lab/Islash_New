@@ -120,6 +120,8 @@ export function createSlashOverlay(stage: HTMLElement): {
     c1?: DesignPoint,
     ownerId?: number,
   ) => void;
+  /** 夹缝颜色：屏上一点对应这块料加深后的颜色。 */
+  setSheetInk: (ink: ((p: DesignPoint) => [number, number, number]) | null) => void;
   retractCrack: (ownerId: number) => void;
   allowCrack: (ownerId: number) => void;
   setPredicted: (pointerId: number, points: DesignPoint[]) => void;
@@ -157,6 +159,7 @@ export function createSlashOverlay(stage: HTMLElement): {
   };
   const flashes: FlashSeg[] = [];
   let crack: { c0: DesignPoint; c1: DesignPoint } | null = null;
+  let sheetInk: ((p: DesignPoint) => [number, number, number]) | null = null;
   let crackRetract: {
     c0: DesignPoint;
     from: DesignPoint;
@@ -236,10 +239,18 @@ export function createSlashOverlay(stage: HTMLElement): {
         const w1 = (crackRetract?.w1 ?? FLASH.crackW * 0.5) * crackDraw;
         ctx.save();
         ctx.shadowBlur = 0;
-        const cr = (FLASH.crackColor >> 16) & 255;
-        const cg = (FLASH.crackColor >> 8) & 255;
-        const cb = FLASH.crackColor & 255;
-        ctx.fillStyle = `rgba(${cr}, ${cg}, ${cb}, ${FLASH.crackAlpha * crackDraw})`;
+        const inkAt = (p: DesignPoint) => {
+          if (sheetInk) return sheetInk(p);
+          const c = FLASH.crackColor;
+          return [(c >> 16) & 255, (c >> 8) & 255, c & 255] as [number, number, number];
+        };
+        const a0 = inkAt(crack.c0);
+        const a1 = inkAt(crack.c1);
+        const fade = FLASH.crackAlpha * crackDraw;
+        const paint = ctx.createLinearGradient(crack.c0.x, crack.c0.y, crack.c1.x, crack.c1.y);
+        paint.addColorStop(0, `rgba(${a0[0]}, ${a0[1]}, ${a0[2]}, ${fade})`);
+        paint.addColorStop(1, `rgba(${a1[0]}, ${a1[1]}, ${a1[2]}, ${fade})`);
+        ctx.fillStyle = paint;
         ctx.beginPath();
         ctx.moveTo(crack.c0.x + nx * w0, crack.c0.y + ny * w0);
         ctx.lineTo(crack.c1.x + nx * w1, crack.c1.y + ny * w1);
@@ -553,6 +564,12 @@ export function createSlashOverlay(stage: HTMLElement): {
     if (!crack) crackOwner = null;
   };
 
+  const setSheetInk = (
+    ink: ((p: DesignPoint) => [number, number, number]) | null,
+  ) => {
+    sheetInk = ink;
+  };
+
   const retractCrack = (ownerId: number) => {
     if (crackOwner != null && crackOwner !== ownerId) return;
     crackOwner = ownerId;
@@ -715,6 +732,7 @@ export function createSlashOverlay(stage: HTMLElement): {
     push,
     setPreview,
     setCrack,
+    setSheetInk,
     retractCrack,
     allowCrack,
     setPredicted,

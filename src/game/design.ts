@@ -342,8 +342,10 @@ export const FLASH = {
   overshootRatio: 0.15,
   /** 预览（未切开）相对切开的亮度。 */
   previewAlpha: 0.72,
-  /** 夹缝颜色（贴近木板倒角深部，不要纯黑）。 */
+  /** 没有料的颜色时的夹缝备用色。拼图关改用料本身加深。 */
   crackColor: 0xb1591a,
+  /** 夹缝相对这块料的颜色变深多少。1 是原色，越小越深。 */
+  crackDarken: 0.86,
   /** 夹缝填充透明度。 */
   crackAlpha: 0.65,
   /**

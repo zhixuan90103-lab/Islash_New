@@ -27,6 +27,8 @@ export type CutPuzzle = {
   onCut: (a: THREE.Mesh, b: THREE.Mesh) => 'ok' | 'submit';
   forget: (mesh: THREE.Mesh) => void;
   requestInstall: () => void;
+  attachSheet: (mesh: THREE.Mesh) => void;
+  rememberCut: (parent: THREE.Mesh, a: THREE.Mesh, b: THREE.Mesh) => void;
   step: (dt: number) => void;
   dispose: () => void;
 };
@@ -179,6 +181,8 @@ export function createCutPuzzle(opts: {
   beginEnter: () => void;
   haltFly: () => void;
   camera: THREE.Camera;
+  mountPiece: (mesh: THREE.Mesh) => void;
+  unmountPiece: (mesh: THREE.Mesh) => void;
   faceMat: THREE.MeshLambertMaterial;
   edgeMat: THREE.MeshLambertMaterial;
 }): CutPuzzle {
@@ -263,6 +267,28 @@ export function createCutPuzzle(opts: {
   hit.setAttribute('aria-label', '装上');
   hit.tabIndex = -1;
 
+  const undoBtn = document.createElement('button');
+  undoBtn.type = 'button';
+  undoBtn.className = 'puzzle-tool is-left';
+  undoBtn.textContent = '撤销';
+  undoBtn.setAttribute('aria-label', '撤销');
+
+  const hintBtn = document.createElement('button');
+  hintBtn.type = 'button';
+  hintBtn.className = 'puzzle-tool is-right';
+  hintBtn.textContent = '提示';
+  hintBtn.setAttribute('aria-label', '提示');
+
+  const hintMat = new THREE.LineDashedMaterial({
+    color: 0xffffff,
+    dashSize: 0.07,
+    gapSize: 0.05,
+    toneMapped: false,
+  });
+  const hintLine = new THREE.LineSegments(new THREE.BufferGeometry(), hintMat);
+  hintLine.visible = false;
+  hintLine.renderOrder = 4;
+
   const starsEl = document.createElement('div');
   starsEl.className = 'puzzle-stars';
   starsEl.setAttribute('aria-hidden', 'true');
@@ -323,6 +349,8 @@ export function createCutPuzzle(opts: {
     opts.uiRoot.appendChild(hud);
     opts.uiRoot.appendChild(preview);
     opts.uiRoot.appendChild(hit);
+    opts.uiRoot.appendChild(undoBtn);
+    opts.uiRoot.appendChild(hintBtn);
     opts.uiRoot.appendChild(starsEl);
   }
 
@@ -330,6 +358,28 @@ export function createCutPuzzle(opts: {
   let t = 0;
   let cuts = 0;
   let stepsLeft = 0;
+  let hintOn = false;
+  type CutSnap = {
+    kind: 'cut';
+    geometry: THREE.BufferGeometry;
+    profile: Poly2[];
+    position: THREE.Vector3;
+    quaternion: THREE.Quaternion;
+    scale: THREE.Vector3;
+    material: THREE.Material | THREE.Material[];
+    depth: number;
+    role: string | undefined;
+    originVolume: number;
+    inFrags: boolean;
+    children: [THREE.Mesh, THREE.Mesh];
+  };
+  type PoseSnap = {
+    kind: 'pose';
+    mesh: THREE.Mesh;
+    p: THREE.Vector3;
+    q: THREE.Quaternion;
+  };
+  const history: Array<CutSnap | PoseSnap> = [];
   let stars = 0;
   let buttonLatched = false;
   const frags: THREE.Mesh[] = [];
@@ -352,6 +402,42 @@ export function createCutPuzzle(opts: {
   const paintSteps = () => {
     stepsNum.textContent = String(Math.max(0, stepsLeft));
     stepsEl.classList.toggle('is-on', phase === 'cut');
+  };
+
+  const toolsLive = () => phase === 'cut' || phase === 'place';
+
+  const paintTools = () => {
+    const live = toolsLive();
+    undoBtn.classList.toggle('is-on', live);
+    undoBtn.classList.toggle('is-ready', live && history.length > 0);
+    hintBtn.classList.toggle('is-on', live);
+    hintBtn.classList.toggle('is-ready', live && hintOn);
+    hintLine.visible = live && hintOn;
+  };
+
+  const rebuildHint = () => {
+    const r = TURTLE.r;
+    const z = PAPER.depth * 1.6;
+    const pts =
+      level === 'butterfly'
+        ? [new THREE.Vector3(0, -r, z), new THREE.Vector3(0, r, z)]
+        : [
+            new THREE.Vector3(-r, 0, z),
+            new THREE.Vector3(r, 0, z),
+            new THREE.Vector3(0, -r, z),
+            new THREE.Vector3(0, 0, z),
+          ];
+    hintLine.geometry.dispose();
+    hintLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+    hintLine.computeLineDistances();
+  };
+  rebuildHint();
+
+  const clearHistory = () => {
+    for (const op of history) {
+      if (op.kind === 'cut') op.geometry.dispose();
+    }
+    history.length = 0;
   };
 
   const hudPose = () => {
@@ -422,10 +508,12 @@ export function createCutPuzzle(opts: {
     t = 0;
     cuts = 0;
     stepsLeft = stepBudget();
+    clearHistory();
     resetPieces();
     for (const mesh of slots.values()) mesh.visible = true;
     placePattern('cut');
     paintSteps();
+    paintTools();
     setThumbHit(false);
     opts.spawnBoard();
     opts.beginEnter();
@@ -497,6 +585,77 @@ export function createCutPuzzle(opts: {
     }
     hit.textContent = '完成';
     setThumbHit(true);
+    paintTools();
+  };
+
+  const rememberCut = (parent: THREE.Mesh, a: THREE.Mesh, b: THREE.Mesh) => {
+    if (hintLine.parent === parent) {
+      parent.updateWorldMatrix(true, false);
+      const wm = hintLine.matrixWorld.clone();
+      hintLine.removeFromParent();
+      opts.scene.add(hintLine);
+      wm.decompose(hintLine.position, hintLine.quaternion, hintLine.scale);
+    }
+    const profile = ((parent.userData.profile as Poly2[] | undefined) ?? []).map((p) => ({
+      x: p.x,
+      y: p.y,
+    }));
+    history.push({
+      kind: 'cut',
+      geometry: parent.geometry.clone(),
+      profile,
+      position: parent.position.clone(),
+      quaternion: parent.quaternion.clone(),
+      scale: parent.scale.clone(),
+      material: parent.material,
+      depth: Number(parent.userData.depth) || PAPER.depth,
+      role: parent.userData.puzzleRole as string | undefined,
+      originVolume: Number(parent.userData.originVolume) || 0,
+      inFrags: frags.includes(parent),
+      children: [a, b],
+    });
+    paintTools();
+  };
+
+  const undo = () => {
+    const op = history.pop();
+    if (!op || !toolsLive()) {
+      if (op) history.push(op);
+      return;
+    }
+    if (op.kind === 'pose') {
+      op.mesh.position.copy(op.p);
+      op.mesh.quaternion.copy(op.q);
+      paintTools();
+      return;
+    }
+    for (const child of op.children) {
+      const i = frags.indexOf(child);
+      if (i >= 0) frags.splice(i, 1);
+      opts.unmountPiece(child);
+    }
+    const mesh = new THREE.Mesh(op.geometry, op.material);
+    mesh.position.copy(op.position);
+    mesh.quaternion.copy(op.quaternion);
+    mesh.scale.copy(op.scale);
+    mesh.userData.cuttable = true;
+    mesh.userData.profile = op.profile;
+    mesh.userData.depth = op.depth;
+    mesh.userData.originVolume = op.originVolume;
+    if (op.role) mesh.userData.puzzleRole = op.role;
+    opts.mountPiece(mesh);
+    if (op.inFrags) frags.push(mesh);
+    else {
+      hintLine.position.set(0, 0, 0);
+      hintLine.quaternion.identity();
+      hintLine.scale.set(1, 1, 1);
+      mesh.add(hintLine);
+    }
+    stepsLeft = Math.min(stepBudget(), stepsLeft + 1);
+    cuts = Math.max(0, cuts - 1);
+    buttonLatched = false;
+    refreshButton();
+    paintTools();
   };
 
   const finishPlace = () => {
@@ -543,6 +702,7 @@ export function createCutPuzzle(opts: {
     held = null;
     hit.textContent = '装上';
     setThumbHit(false);
+    paintTools();
   };
 
   hit.addEventListener('pointerdown', (ev) => {
@@ -552,10 +712,26 @@ export function createCutPuzzle(opts: {
     else if (phase === 'place') finishPlace();
   });
 
+  const stopTool = (ev: Event) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+  };
+  undoBtn.addEventListener('pointerdown', (ev) => {
+    stopTool(ev);
+    undo();
+  });
+  hintBtn.addEventListener('pointerdown', (ev) => {
+    stopTool(ev);
+    if (!toolsLive()) return;
+    hintOn = !hintOn;
+    paintTools();
+  });
+
   const stage = document.getElementById('stage');
   const fingers = new Map<number, { x: number; y: number }>();
   let held: THREE.Mesh | null = null;
   let spin: { ang: number } | null = null;
+  let pose0: { mesh: THREE.Mesh; p: THREE.Vector3; q: THREE.Quaternion } | null = null;
 
   const pairAngle = () => {
     const pts = [...fingers.values()];
@@ -621,6 +797,11 @@ export function createCutPuzzle(opts: {
         return;
       }
       held = mesh;
+      pose0 = {
+        mesh,
+        p: mesh.position.clone(),
+        q: mesh.quaternion.clone(),
+      };
       mesh.position.z = PAPER.depth * 3;
     }
     const pair = pairAngle();
@@ -650,8 +831,16 @@ export function createCutPuzzle(opts: {
     fingers.delete(e.pointerId);
     spin = null;
     if (fingers.size === 0) {
+      if (held && pose0 && pose0.mesh === held) {
+        const moved =
+          held.position.distanceTo(pose0.p) > 1e-4 ||
+          1 - Math.abs(held.quaternion.dot(pose0.q)) > 1e-5;
+        if (moved) history.push({ kind: 'pose', mesh: held, p: pose0.p, q: pose0.q });
+        paintTools();
+      }
       if (held) held.position.z = PAPER.depth * 2;
       held = null;
+      pose0 = null;
       return;
     }
     const pair = pairAngle();
@@ -669,6 +858,14 @@ export function createCutPuzzle(opts: {
     cuts: () => cuts,
     level: () => level,
     forget,
+    attachSheet: (mesh: THREE.Mesh) => {
+      hintLine.position.set(0, 0, 0);
+      hintLine.quaternion.identity();
+      hintLine.scale.set(1, 1, 1);
+      mesh.add(hintLine);
+      paintTools();
+    },
+    rememberCut,
     onCut: (a, b) => {
       if (phase !== 'cut') return 'ok';
       for (const mesh of [a, b]) {
@@ -730,9 +927,12 @@ export function createCutPuzzle(opts: {
           starsEl.dataset.n = '0';
           installs = [];
           t = 0;
+          clearHistory();
+          hintLine.removeFromParent();
           opts.clearBoard();
           level = level === 'butterfly' ? 'turtle' : 'butterfly';
           mountLevel();
+          rebuildHint();
           phase = 'show';
           placePattern('full');
         }
@@ -740,6 +940,10 @@ export function createCutPuzzle(opts: {
     },
     dispose: () => {
       hit.remove();
+      undoBtn.remove();
+      hintBtn.remove();
+      hintLine.geometry.dispose();
+      hintMat.dispose();
       hud.remove();
       stage?.removeEventListener('pointerdown', onPlaceDown);
       stage?.removeEventListener('pointermove', onPlaceMove);

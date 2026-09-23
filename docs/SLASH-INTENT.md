@@ -96,7 +96,7 @@
 
 - 从锁死的 A 画到刀尖，**不出板**。刀尖离开凸包立刻不画。
 - 慢滑：终点跟刀尖。快滑（≥ `crackHoldSpeed`）且刀尖离锁 A 刀轴 > `crackLeave` 则藏缝。
-- 入口宽、指尖细，色 `crackColor` `#b1591a`，透明度 `crackAlpha` 0.65。
+- 入口宽、指尖细。颜色取这一刀底下的料，再按 `crackDarken` 稍微加深。没有料色时用 `crackColor` `#b1591a`。透明度 `crackAlpha` 0.65。
 - 进板即可画，不必等刀光锁定。
 - 余势拦住时不对留下的新块跟手画夹缝。
 - 乱划取消：夹缝从刀尖收回 A（`FLASH.crackRetract`），本刀不再画缝。出板再进的新刀才重新画。镜头推进再回位（`SHAKE.cancelPush`），并小幅左右晃（`SHAKE.cancelWobble`）。
@@ -161,7 +161,7 @@
 | life / grow / growStart | 0.3 / 0.55 / 0.28 | 时长与变长 |
 | coreW / coreWMin | 15 / 1.65 | 短时最宽 / 满时最细（半宽） |
 | spanMin / overshootBack / overshoot | 300 / 72 / 42 | 长度与两端探出 |
-| crackColor / crackAlpha | `#b1591a` / 0.65 | 夹缝色与透明度 |
+| crackColor / crackDarken / crackAlpha | `#b1591a` / 0.86 / 0.65 | 无料色时的备用色；拼图关用料色乘 `crackDarken`。透明度仍是 crackAlpha |
 | crackLeave / crackHoldSpeed | 28 / 280 | 快滑离轴藏缝（px / px/s） |
 | crackW / crackW0 / crackGrow / crackWMax | 1.2 / 2.5 / 0.14 / 6.6 | 指尖宽、入点宽 |
 | crackRetract | 0.16 | 乱划取消时夹缝收回时长（秒） |

@@ -331,6 +331,42 @@ body.native-app #shell {
   transform: translateX(-50%) translateY(0);
 }
 
+.puzzle-tool {
+  position: absolute;
+  bottom: calc(var(--safe-bottom) + 28px);
+  width: 64px;
+  height: 44px;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: 22px;
+  background: #fff;
+  color: #1a6b3c;
+  font: 800 15px/44px system-ui, sans-serif;
+  letter-spacing: 0.06em;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 6;
+  box-shadow: 0 8px 0 rgba(24, 90, 50, 0.16);
+}
+
+.puzzle-tool.is-left {
+  left: 16px;
+}
+
+.puzzle-tool.is-right {
+  right: 16px;
+}
+
+.puzzle-tool.is-on {
+  opacity: 0.72;
+  pointer-events: auto;
+}
+
+.puzzle-tool.is-ready {
+  opacity: 1;
+}
+
 .puzzle-stars {
   position: absolute;
   left: 50%;

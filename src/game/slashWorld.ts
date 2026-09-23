@@ -1,8 +1,9 @@
 import * as THREE from 'three';
 import { applyBladeImpulse, pieceVolume } from './bladeForce';
-import { boardCutProgress, CUT, FINALE, FX, PAPER, SHAKE, WOOD } from './design';
+import { boardCutProgress, CUT, FINALE, FLASH, FX, PAPER, SHAKE, WOOD } from './design';
 import { createCutPuzzle } from './cutPuzzle';
 import { BUTTERFLY } from './butterflyLevel';
+import { localIsDark, TURTLE } from './turtleLevel';
 import { mountCutProgressHud } from './cutProgressHud';
 import { createScreenShake, cutHit } from './screenShake';
 import type { PhysBody } from './slashPhysics';
@@ -14,7 +15,7 @@ import {
 import { beginFollow } from './slashFollow';
 import { createSlashOverlay } from './slashDebug';
 import { cutMeshBySlash, prepareCuttable } from './slashCut';
-import { projectMeshHull } from './slashHit';
+import { designToLocalXY, projectMeshHull } from './slashHit';
 import {
   createSlashInput,
   segmentSpeedPxPerSec,
@@ -76,6 +77,22 @@ export async function mountSlashWorld(
     spawnBoard: () => {
       if (puzzle.level() === 'butterfly') wood.spawnSolidDisc(BUTTERFLY.pink, BUTTERFLY.edge);
       else wood.spawnDisc();
+      const sheet = wood.cuttables[0];
+      if (sheet) puzzle.attachSheet(sheet);
+    },
+    mountPiece: (mesh) => {
+      scene.add(mesh);
+      prepareCuttable(mesh);
+      if (puzzle.canCut()) physics.addMesh(mesh, 'paper');
+      else physics.addMesh(mesh, 'staticConvex');
+      wood.cuttables.push(mesh);
+      wood.track(mesh);
+    },
+    unmountPiece: (mesh) => {
+      physics.removeMesh(mesh);
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      wood.forget(mesh);
     },
     clearBoard: () => wood.clear(),
     beginEnter,
@@ -313,6 +330,7 @@ export async function mountSlashWorld(
     const finish = puzzleCut
       ? false
       : keepVol < originVol * CUT.finishRemain;
+    if (puzzleCut) puzzle.rememberCut(commit.mesh, result.a, result.b);
     if (puzzleCut) puzzle.forget(commit.mesh);
     if (puzzleCut) openCutGap(result.a, result.b);
     const pieces = replaceCut(commit.mesh, result.a, result.b, finish);
@@ -384,8 +402,10 @@ export async function mountSlashWorld(
         seg[1],
         seg[0],
       ) ?? crack;
-    if (crack2) overlay.setCrack(crack2.c0, crack2.c1, stroke.pointerId);
-    else overlay.setCrack(null, undefined, stroke.pointerId);
+    if (crack2) {
+      inkFor(pieces.keep.userData.puzzleRole === 'stock' ? pieces.keep : pieces.drop);
+      overlay.setCrack(crack2.c0, crack2.c1, stroke.pointerId);
+    } else overlay.setCrack(null, undefined, stroke.pointerId);
     overlay.freezeFlash();
     if (!finish && commitFlash) {
       overlay.flash(commit.c0, commit.c1, false, stroke.pointerId);
@@ -461,6 +481,28 @@ export async function mountSlashWorld(
     return id === active.pointerId;
   };
 
+  const tone = (hex: number): [number, number, number] => {
+    const k = FLASH.crackDarken;
+    return [
+      Math.round(((hex >> 16) & 255) * k),
+      Math.round(((hex >> 8) & 255) * k),
+      Math.round((hex & 255) * k),
+    ];
+  };
+
+  const inkFor = (mesh: THREE.Mesh | undefined) => {
+    if (!mesh || mesh.userData.puzzleRole !== 'stock') {
+      overlay.setSheetInk(null);
+      return;
+    }
+    overlay.setSheetInk((p) => {
+      if (puzzle.level() === 'butterfly') return tone(BUTTERFLY.pink);
+      const local = designToLocalXY(p, camera, mesh);
+      const hex = local && localIsDark(local.y) ? TURTLE.dark : TURTLE.light;
+      return tone(hex);
+    });
+  };
+
   const input = createSlashInput(stage, getLayout, {
     onStroke: (stroke) => {
       if (puzzle.phase() === 'place') return;
@@ -512,6 +554,11 @@ export async function mountSlashWorld(
           overlay.allowCrack(stroke.pointerId);
           cancelPushed.delete(stroke.pointerId);
           if (frame.crack) {
+            const inkMesh =
+              frame.meshId != null
+                ? wood.cuttables.find((m) => m.id === frame.meshId)
+                : wood.cuttables[0];
+            inkFor(inkMesh);
             overlay.setCrack(frame.crack.c0, frame.crack.c1, stroke.pointerId);
           } else overlay.setCrack(null, undefined, stroke.pointerId);
         }
@@ -662,8 +709,16 @@ export async function mountSlashWorld(
           tip,
           from,
         );
-        if (crack) overlay.setCrack(crack.c0, crack.c1, liveStroke.pointerId);
-        else overlay.setCrack(null, undefined, liveStroke.pointerId);
+        if (crack) {
+          const tracked = [...liveStroke.progress.keys()][0];
+          const inkMesh =
+            (tracked != null
+              ? wood.cuttables.find((m) => m.id === tracked)
+              : undefined) ??
+            wood.cuttables.find((m) => !liveStroke.slicedIds.has(m.id));
+          inkFor(inkMesh);
+          overlay.setCrack(crack.c0, crack.c1, liveStroke.pointerId);
+        } else overlay.setCrack(null, undefined, liveStroke.pointerId);
       } else {
         overlay.setCrack(null);
       }
