@@ -265,6 +265,20 @@ export function createSlashInput(
   };
 
   stage.style.touchAction = 'none';
+  const swallowBrowser = (e: Event) => {
+    const t = e.target;
+    if (
+      t instanceof Element &&
+      t.closest('button, input, textarea, .debug-panel, .puzzle-settings, .puzzle-result')
+    ) {
+      return;
+    }
+    e.preventDefault();
+  };
+  stage.addEventListener('touchstart', swallowBrowser, { passive: false });
+  stage.addEventListener('touchmove', swallowBrowser, { passive: false });
+  stage.addEventListener('gesturestart', swallowBrowser);
+  stage.addEventListener('contextmenu', swallowBrowser);
   stage.addEventListener('pointerdown', onDown);
   stage.addEventListener('pointermove', onMove);
   stage.addEventListener('pointerup', onUp);
@@ -277,6 +291,10 @@ export function createSlashInput(
     stroke: () => live.values().next().value ?? null,
     strokes: () => [...live.values()],
     dispose: () => {
+      stage.removeEventListener('touchstart', swallowBrowser);
+      stage.removeEventListener('touchmove', swallowBrowser);
+      stage.removeEventListener('gesturestart', swallowBrowser);
+      stage.removeEventListener('contextmenu', swallowBrowser);
       stage.removeEventListener('pointerdown', onDown);
       stage.removeEventListener('pointermove', onMove);
       stage.removeEventListener('pointerup', onUp);
