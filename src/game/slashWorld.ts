@@ -49,6 +49,7 @@ export async function mountSlashWorld(
   scene: THREE.Scene,
   camera: THREE.PerspectiveCamera,
   getLayout: () => StageLayout | null,
+  setGrid?: (light: number, dark: number) => void,
 ): Promise<SlashSession> {
   const physics = await createSlashPhysics();
   void gameAudio.preload();
@@ -103,6 +104,7 @@ export async function mountSlashWorld(
       shake.setLookX(x);
       if (z != null) shake.setLookZ(z);
     },
+    setGrid,
     faceMat: wood.faceMat,
     edgeMat: wood.edgeMat,
   });

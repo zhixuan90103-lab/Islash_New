@@ -45,7 +45,7 @@ portrait-webgpu-base/
 
 | 项 | 值 |
 |----|-----|
-| `appId` | `com.wangzhixuan.islash.cut` |
+| `appId` | `com.wangzhixuan.islash.notebook` |
 | `webDir` | `dist` |
 | `ios.contentInset` | `never` |
 | `ios.scrollEnabled` | `false` |

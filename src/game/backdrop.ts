@@ -50,6 +50,8 @@ function cornerShadeTexture(): THREE.CanvasTexture {
 export type Backdrop = {
   /** 四角压暗跟着镜头，格子钉在世界里。 */
   sync: (camera: THREE.Camera) => void;
+  /** 换棋盘格的浅色和深色。 */
+  setGrid: (light: number, dark: number) => void;
 };
 
 /**
@@ -112,6 +114,13 @@ export function mountBackdropPlane(scene: THREE.Scene): Backdrop {
   return {
     sync: (camera) => {
       vignette.position.set(camera.position.x, camera.position.y, VIEW.bgZ + 0.04);
+    },
+    setGrid: (light, dark) => {
+      const bytes = (hex: number) => [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255, 255];
+      const data = tex.image.data as Uint8Array;
+      data.set([...bytes(light), ...bytes(dark), ...bytes(dark), ...bytes(light)]);
+      tex.needsUpdate = true;
+      scene.background = new THREE.Color(light);
     },
   };
 }

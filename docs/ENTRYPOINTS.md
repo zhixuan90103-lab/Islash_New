@@ -8,7 +8,7 @@
 | `npm run build` | `tsc` 检查 + `dist/`（相对路径） |
 | `npm run cap:sync` | build + cap sync ios |
 | `npm run ios:bootstrap` | 首次 / 改 Swift：拷插件 + storyboard + SceneDelegate |
-| `npm run ios` | build + sync + 开 Xcode（`com.wangzhixuan.islash.cut`） |
+| `npm run ios` | build + sync + 开 Xcode（`com.wangzhixuan.islash.notebook`） |
 
 ## 2. Web 启动链
 

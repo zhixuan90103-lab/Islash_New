@@ -222,7 +222,7 @@ J = mass * targetSpeed
 
 | 项 | 值 |
 |----|-----|
-| appId | `com.wangzhixuan.islash.cut` |
+| appId | `com.wangzhixuan.islash.notebook` |
 | appName | Islash Cut |
 | 命令 | `npm run ios`（build + sync + 开 Xcode） |
 

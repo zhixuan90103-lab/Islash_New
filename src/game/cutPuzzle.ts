@@ -8,6 +8,8 @@ import {
   turtleEyeCenter,
   turtleHeadPoly,
   turtleParts,
+  turtleShadeCaps,
+  paperFaceTexture,
   type TurtlePart,
 } from './turtleLevel';
 import { BUTTERFLY, butterflyBody, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
@@ -217,6 +219,7 @@ export function createCutPuzzle(opts: {
   haltFly: () => void;
   camera: THREE.Camera;
   setLook: (x: number, z?: number) => void;
+  setGrid?: (light: number, dark: number) => void;
   mountPiece: (mesh: THREE.Mesh) => void;
   unmountPiece: (mesh: THREE.Mesh) => void;
   faceMat: THREE.MeshLambertMaterial;
@@ -236,32 +239,149 @@ export function createCutPuzzle(opts: {
     opacity: 0.3,
     depthWrite: false,
   });
-  const headFace = new THREE.MeshLambertMaterial({ color: TURTLE.dark });
-  const headEdge = new THREE.MeshLambertMaterial({ color: 0x166b2c });
-  const eyeMat = new THREE.MeshBasicMaterial({ color: TURTLE.eye });
-  const butterflyEyeMat = new THREE.MeshBasicMaterial({ color: 0xc7c77f });
+  const headFace = new THREE.MeshLambertMaterial({ color: 0xffffff, map: paperFaceTexture(TURTLE.light) });
+  const headEdge = new THREE.MeshLambertMaterial({ color: 0xffffff, map: paperFaceTexture(0xb5d090) });
+  const paintPaper = (mat: THREE.Material, hex: number) => {
+    const textured = mat as THREE.MeshBasicMaterial;
+    textured.map?.dispose();
+    textured.map = paperFaceTexture(hex);
+    textured.color.set(0xffffff);
+    textured.needsUpdate = true;
+  };
+  const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, map: paperFaceTexture(TURTLE.eye) });
+  const butterflyEyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, map: paperFaceTexture(0xc7c77f) });
   const butterflyEyeShadowMat = new THREE.MeshBasicMaterial({
     color: 0x000000,
     transparent: true,
     opacity: 0.28,
     depthWrite: false,
   });
+  const turtleHeadRimMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    map: paperFaceTexture(0x5f7828),
+    depthWrite: false,
+  });
+  const pieceShadowMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: PAPER.shadowOpacity,
+    depthWrite: false,
+  });
+  const turtleOuterDropMat = new THREE.MeshBasicMaterial({
+    color: 0x4d6224,
+    transparent: true,
+    opacity: PAPER.shadowOpacity,
+    depthWrite: false,
+  });
+  const butterflyOuterDropMat = new THREE.MeshBasicMaterial({
+    color: 0x8f5c70,
+    transparent: true,
+    opacity: PAPER.shadowOpacity,
+    depthWrite: false,
+  });
   let level: 'turtle' | 'butterfly' = 'butterfly';
   const shade = {
     butterfly: { color: '#c98496', x: 0.1, y: 0, size: 1, angle: 5, opacity: 0.95 },
-    turtle: { color: '#c98496', x: 0.1, y: 0, size: 1, angle: 5, opacity: 1 },
+    turtle: { color: '#5f7828', x: 0, y: 0, size: 1, angle: 15, opacity: 1 },
   };
   let syncShadePanel = () => {};
+  let turtleOverall = 0.9;
+  let turtleAngle = 15;
+  let turtleFit = { fit: 1, cx: 0, cy: 0 };
+  const turtleTune = {
+    shell: { x: 0.3, y: 0, size: 1 },
+    legL: { x: 0.49, y: 0, size: 1 },
+    legR: { x: 0.11, y: 0, size: 1 },
+    head: { x: 0.2, y: 0, size: 0.7 },
+    eye: { x: 0.3, y: 0.16, size: 1 },
+  };
+  type TurtleTuneId = keyof typeof turtleTune;
+  const shadowLayer = {
+    outer: { x: 0, y: 0, size: 1, opacity: 1 },
+  };
+  const headRimTune = { x: 0.15, y: -0.15, size: 1.45 };
+  const innerTune = {
+    shell: { x: 0, y: 0, size: 1, opacity: 0.3 },
+    legL: { x: -0.13, y: -0.1, size: 0.9, opacity: 0.3 },
+    legR: { x: 0.13, y: -0.1, size: 0.9, opacity: 0.3 },
+  };
+  const applyTurtleTune = () => {
+    shade.turtle.opacity = shadowLayer.outer.opacity;
+    shadePivot.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      if (obj.userData.headRim) {
+        obj.position.set(headRimTune.x, headRimTune.y, -0.012);
+        obj.scale.setScalar(headRimTune.size);
+        return;
+      }
+      const id = obj.userData.turtleId as TurtleTuneId | undefined;
+      const home = obj.userData.turtleHome as { x: number; y: number; z: number } | undefined;
+      if (!id || !home) return;
+      const tune = turtleTune[id];
+      const layer = obj.userData.turtleLayer as 'outer' | 'inner' | undefined;
+      const extra = layer === 'outer'
+        ? shadowLayer.outer
+        : layer === 'inner' && id in innerTune
+          ? innerTune[id as keyof typeof innerTune]
+          : { x: 0, y: 0, size: 1 };
+      obj.position.set(home.x + tune.x + extra.x, home.y + tune.y + extra.y, home.z);
+      obj.scale.setScalar(tune.size * extra.size);
+      if (layer === 'inner' && id in innerTune) {
+        const mat = obj.material;
+        const mats = Array.isArray(mat) ? mat : [mat];
+        for (const item of mats) {
+          if (!('opacity' in item)) continue;
+          item.opacity = innerTune[id as keyof typeof innerTune].opacity;
+          item.transparent = item.opacity < 1;
+        }
+      }
+    });
+    placeOuterDrops();
+  };
+  const placeOuterDrops = () => {
+    const groupScale = PATTERN_FIT * (shade[level].size || 1);
+    shadePivot.traverse((obj) => {
+      if (!obj.userData.outerDrop) return;
+      const parentScale = obj.parent instanceof THREE.Object3D ? obj.parent.scale.x || 1 : 1;
+      const worldScale = groupScale * parentScale;
+      obj.position.set(
+        (PAPER.shadowX * 0.4) / worldScale,
+        (PAPER.shadowY * 0.4) / worldScale,
+        0.002,
+      );
+    });
+  };
+  const anchorTurtle = (
+    mesh: THREE.Mesh,
+    id: TurtleTuneId,
+    ox: number,
+    oy: number,
+    z: number,
+    layer?: 'outer' | 'inner',
+  ) => {
+    mesh.geometry.translate(-ox, -oy, 0);
+    const profile = mesh.userData.profile as Poly2[] | undefined;
+    if (profile) {
+      mesh.userData.profile = profile.map((p) => ({ x: p.x - ox, y: p.y - oy }));
+    }
+    mesh.userData.turtleId = id;
+    mesh.userData.turtleLayer = layer;
+    mesh.userData.turtleHome = { x: ox, y: oy, z };
+    mesh.position.set(ox, oy, z);
+  };
   const applyShade = () => {
     const s = shade[level];
     const hex = Number.parseInt(s.color.slice(1), 16);
     const mats = level === 'butterfly' ? [butterflyShadow] : [shadowFace, shadowEdge];
     for (const mat of mats) {
-      mat.color.set(hex);
+      paintPaper(mat, hex);
       mat.opacity = s.opacity;
       mat.transparent = s.opacity < 1;
       mat.depthWrite = s.opacity >= 1;
     }
+    paperShade.opacity = 0.3;
+    paperShade.transparent = paperShade.opacity < 1;
+    placeOuterDrops();
     shadePivot.position.set(s.x, s.y, 0);
     shadePivot.rotation.z = (s.angle * Math.PI) / 180;
     shadePivot.scale.setScalar(s.size);
@@ -287,6 +407,7 @@ export function createCutPuzzle(opts: {
     cover: '#db96a8',
     page: '#fef2df',
   };
+  let syncBookColors = () => {};
   const coverW = () => pageW + look.spine + look.rim;
   const coverH = () => pageH + look.rim * 2;
   const coverFace = new THREE.MeshBasicMaterial({ color: 0xdb96a8 });
@@ -352,6 +473,10 @@ export function createCutPuzzle(opts: {
   const dropMesh = (mesh: THREE.Mesh) => {
     shadePivot.remove(mesh);
     mesh.geometry.dispose();
+    if (mesh.userData.ownMat) {
+      const mat = mesh.material;
+      for (const item of Array.isArray(mat) ? mat : [mat]) item.dispose();
+    }
   };
 
   const mountLevel = () => {
@@ -360,7 +485,21 @@ export function createCutPuzzle(opts: {
     for (const mesh of extras) dropMesh(mesh);
     extras.length = 0;
     pattern.scale.setScalar(PATTERN_FIT);
-    pattern.rotation.z = level === 'turtle' ? Math.PI / 2 : 0;
+    pattern.rotation.z = 0;
+    if (level === 'turtle') {
+      look.cover = '#93af48';
+      look.page = '#fff9e4';
+      opts.setGrid?.(0xf2c8cb, 0xe7bdc0);
+    } else {
+      look.cover = '#db96a8';
+      look.page = '#fef2df';
+      opts.setGrid?.(0xafc4d9, 0xabc0d5);
+    }
+    coverFace.color.set(look.cover);
+    coverEdge.color.set(tint(look.cover, 8));
+    pageFace.color.set(look.page);
+    pageEdge.color.set(tint(look.page, 8));
+    syncBookColors();
     pattern.position.x = 0;
     pattern.position.z = page.position.z + 0.012;
     parts = level === 'turtle' ? turtleParts() : butterflyParts();
@@ -373,16 +512,64 @@ export function createCutPuzzle(opts: {
       mesh.name = part.id;
       slots.set(part.id, mesh);
       shadePivot.add(mesh);
+      if (level === 'turtle' && (part.id === 'shell' || part.id === 'legL' || part.id === 'legR')) {
+        const origin = part.id === 'legL' ? { x: TURTLE.r, y: 0 }
+          : part.id === 'legR' ? { x: -TURTLE.r, y: 0 }
+          : { x: 0, y: 0 };
+        anchorTurtle(mesh, part.id, origin.x, origin.y, 0, 'outer');
+        const drop = new THREE.Mesh(mesh.geometry, turtleOuterDropMat);
+        drop.userData.outerDrop = true;
+        drop.renderOrder = 1;
+        mesh.add(drop);
+      }
+      if (level === 'butterfly' && (part.id === 'wingL' || part.id === 'wingR')) {
+        const drop = new THREE.Mesh(mesh.geometry, butterflyOuterDropMat);
+        drop.userData.outerDrop = true;
+        drop.renderOrder = 1;
+        mesh.add(drop);
+      }
     }
-    const z = PAPER.depth * 0.7;
     if (level === 'turtle') {
+      const caps = turtleShadeCaps();
+      const capIds: TurtleTuneId[] = ['shell', 'legL', 'legR'];
+      caps.forEach((poly, index) => {
+        const capMat = paperShade.clone();
+        const cap = makePartMesh(poly, capMat, capMat);
+        cap.userData.ownMat = true;
+        const id = capIds[index];
+        const origin = id === 'legL' ? { x: TURTLE.r, y: 0 }
+          : id === 'legR' ? { x: -TURTLE.r, y: 0 }
+          : { x: 0, y: 0 };
+        anchorTurtle(cap, id, origin.x, origin.y, PAPER.depth + 0.01, 'inner');
+        cap.renderOrder = 3;
+        extras.push(cap);
+        shadePivot.add(cap);
+      });
       const head = makePartMesh(turtleHeadPoly(), headFace, headEdge);
+      anchorTurtle(head, 'head', TURTLE.r * 2, 0, PAPER.depth + 0.03);
+      const headRim = new THREE.Mesh(head.geometry, turtleHeadRimMat);
+      headRim.userData.headRim = true;
+      headRim.scale.setScalar(headRimTune.size);
+      headRim.position.set(headRimTune.x, headRimTune.y, -0.012);
+      headRim.renderOrder = 4;
+      head.add(headRim);
+      const headDrop = new THREE.Mesh(head.geometry, pieceShadowMat);
+      headDrop.userData.outerDrop = true;
+      headDrop.renderOrder = 1;
+      head.add(headDrop);
+      head.renderOrder = 5;
       extras.push(head);
       shadePivot.add(head);
       const eyeAt = turtleEyeCenter();
       const eye = new THREE.Mesh(new THREE.CircleGeometry(TURTLE.r * 0.07, 16), eyeMat);
-      eye.position.set(eyeAt.x, eyeAt.y, z);
-      eye.renderOrder = 3;
+      eye.userData.turtleId = 'eye';
+      eye.userData.turtleHome = { x: eyeAt.x, y: eyeAt.y, z: PAPER.depth + 0.05 };
+      eye.position.set(eyeAt.x, eyeAt.y, PAPER.depth + 0.05);
+      const eyeDrop = new THREE.Mesh(eye.geometry, pieceShadowMat);
+      eyeDrop.userData.outerDrop = true;
+      eyeDrop.renderOrder = 1;
+      eye.add(eyeDrop);
+      eye.renderOrder = 5;
       extras.push(eye);
       shadePivot.add(eye);
     } else {
@@ -415,7 +602,37 @@ export function createCutPuzzle(opts: {
         shadePivot.add(eye);
       }
     }
+    if (level === 'turtle') {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      const add = (x: number, y: number) => {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      };
+      for (const poly of turtleShadeCaps()) {
+        for (const p of poly) add(p.x, p.y);
+      }
+      for (const p of turtleHeadPoly()) add(p.x, p.y);
+      const eyeAt = turtleEyeCenter();
+      const eyeR = TURTLE.r * 0.07;
+      add(eyeAt.x - eyeR, eyeAt.y - eyeR);
+      add(eyeAt.x + eyeR, eyeAt.y + eyeR);
+      const pageW = TURTLE.r * 2 + 0.22;
+      const pageH = pageW * 1.54;
+      const localW = pageW * NOTEBOOK.scale / PATTERN_FIT;
+      const localH = pageH * NOTEBOOK.scale / PATTERN_FIT;
+      const fit = Math.min(1, (localW * 0.86) / (maxX - minX), (localH * 0.86) / (maxY - minY));
+      turtleFit = { fit, cx: (minX + maxX) * 0.5, cy: (minY + maxY) * 0.5 };
+      shade.turtle.size = fit * turtleOverall;
+      shade.turtle.x = -turtleFit.cx * shade.turtle.size;
+      shade.turtle.y = -turtleFit.cy * shade.turtle.size;
+    }
     applyShade();
+    applyTurtleTune();
   };
   mountLevel();
   board.scale.set(1, 1, 1);
@@ -442,6 +659,11 @@ export function createCutPuzzle(opts: {
   undoBtn.innerHTML = undoIcon;
   undoBtn.setAttribute('aria-label', '撤销');
 
+  const previewBtn = document.createElement('button');
+  previewBtn.type = 'button';
+  previewBtn.className = 'puzzle-preview';
+  previewBtn.setAttribute('aria-label', '回到预览');
+  previewBtn.innerHTML = `<svg ${iconAttrs}><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>`;
   const hintBtn = document.createElement('button');
   hintBtn.type = 'button';
   hintBtn.className = 'puzzle-tool is-right';
@@ -515,6 +737,7 @@ export function createCutPuzzle(opts: {
     opts.uiRoot.appendChild(hit);
     opts.uiRoot.appendChild(undoBtn);
     opts.uiRoot.appendChild(hintBtn);
+    opts.uiRoot.appendChild(previewBtn);
     resultEl.className = 'puzzle-result';
     resultEl.className = 'puzzle-result';
     const resultCard = document.createElement('div');
@@ -575,6 +798,7 @@ export function createCutPuzzle(opts: {
       row.append(name, input, value);
       panel.append(row);
     };
+    const colorInputs: Partial<Record<'cover' | 'page', HTMLInputElement>> = {};
     const addColor = (label: string, key: 'cover' | 'page') => {
       const row = document.createElement('label');
       const name = document.createElement('span');
@@ -582,12 +806,17 @@ export function createCutPuzzle(opts: {
       const input = document.createElement('input');
       input.type = 'color';
       input.value = look[key];
+      colorInputs[key] = input;
       input.addEventListener('input', () => {
         look[key] = input.value;
         applyLook();
       });
       row.append(name, input);
       panel.append(row);
+    };
+    syncBookColors = () => {
+      if (colorInputs.cover) colorInputs.cover.value = look.cover;
+      if (colorInputs.page) colorInputs.page.value = look.page;
     };
     addRange('外皮边', () => look.rim, (n) => { look.rim = n; }, 0.02, 0.22);
     addRange('线圈边', () => look.spine, (n) => { look.spine = n; }, 0.08, 0.42);
@@ -605,6 +834,46 @@ export function createCutPuzzle(opts: {
     addRange('痕尾宽', () => TRAIL.tailW, (n) => { TRAIL.tailW = n; }, 0, 16, 0.5, false);
     addRange('痕尖长', () => TRAIL.tipLen, (n) => { TRAIL.tipLen = n; }, 0, 40, 1, false);
     addRange('痕细分', () => TRAIL.subdiv, (n) => { TRAIL.subdiv = n; }, 1, 12, 1, false);
+    const turtleTitle = document.createElement('div');
+    turtleTitle.textContent = '乌龟零件';
+    panel.append(turtleTitle);
+    addRange('整体大小', () => turtleOverall, (n) => {
+      turtleOverall = n;
+      shade.turtle.size = turtleFit.fit * n;
+      shade.turtle.x = -turtleFit.cx * shade.turtle.size;
+      shade.turtle.y = -turtleFit.cy * shade.turtle.size;
+      applyShade();
+    }, 0.4, 1.8, 0.01, false);
+    addRange('整体角度', () => turtleAngle, (n) => {
+      turtleAngle = n;
+      shade.turtle.angle = n;
+      applyShade();
+    }, -180, 180, 1, false);
+    addRange('头轮廓左右', () => headRimTune.x, (n) => { headRimTune.x = n; applyTurtleTune(); }, -0.8, 0.8, 0.01, false);
+    addRange('头轮廓上下', () => headRimTune.y, (n) => { headRimTune.y = n; applyTurtleTune(); }, -0.8, 0.8, 0.01, false);
+    addRange('头轮廓大小', () => headRimTune.size, (n) => { headRimTune.size = n; applyTurtleTune(); }, 1, 2.2, 0.01, false);
+    addRange('外影左右', () => shadowLayer.outer.x, (n) => { shadowLayer.outer.x = n; applyTurtleTune(); applyShade(); }, -0.8, 0.8, 0.01, false);
+    addRange('外影上下', () => shadowLayer.outer.y, (n) => { shadowLayer.outer.y = n; applyTurtleTune(); applyShade(); }, -0.8, 0.8, 0.01, false);
+    addRange('外影大小', () => shadowLayer.outer.size, (n) => { shadowLayer.outer.size = n; applyTurtleTune(); }, 0.4, 2, 0.01, false);
+    addRange('外影透明', () => shadowLayer.outer.opacity, (n) => { shadowLayer.outer.opacity = n; applyTurtleTune(); applyShade(); }, 0, 1, 0.01, false);
+    for (const [label, id] of [['壳内', 'shell'], ['左腿内', 'legL'], ['右腿内', 'legR']] as const) {
+      addRange(`${label}左右`, () => innerTune[id].x, (n) => { innerTune[id].x = n; applyTurtleTune(); }, -0.8, 0.8, 0.01, false);
+      addRange(`${label}上下`, () => innerTune[id].y, (n) => { innerTune[id].y = n; applyTurtleTune(); }, -0.8, 0.8, 0.01, false);
+      addRange(`${label}大小`, () => innerTune[id].size, (n) => { innerTune[id].size = n; applyTurtleTune(); }, 0.4, 2, 0.01, false);
+      addRange(`${label}透明`, () => innerTune[id].opacity, (n) => { innerTune[id].opacity = n; applyTurtleTune(); }, 0, 1, 0.01, false);
+    }
+    const turtleIds = [
+      ['壳', 'shell'],
+      ['左腿', 'legL'],
+      ['右腿', 'legR'],
+      ['头', 'head'],
+      ['眼', 'eye'],
+    ] as const;
+    for (const [label, id] of turtleIds) {
+      addRange(`${label}左右`, () => turtleTune[id].x, (n) => { turtleTune[id].x = n; applyTurtleTune(); }, -1.2, 1.2, 0.01, false);
+      addRange(`${label}上下`, () => turtleTune[id].y, (n) => { turtleTune[id].y = n; applyTurtleTune(); }, -1.2, 1.2, 0.01, false);
+      addRange(`${label}大小`, () => turtleTune[id].size, (n) => { turtleTune[id].size = n; applyTurtleTune(); }, 0.4, 2, 0.01, false);
+    }
     addColor('外皮色', 'cover');
     addColor('内页色', 'page');
     const shadeRows: Array<{ pull: () => void }> = [];
@@ -666,6 +935,8 @@ export function createCutPuzzle(opts: {
 
   let phase: PuzzlePhase = 'show';
   let goalLive = false;
+  let holdSettings = false;
+  let holdPreview = false;
   let goalTimer = 0;
   let lookX = 0;
   let lookZ = VIEW.cameraZ;
@@ -722,7 +993,7 @@ export function createCutPuzzle(opts: {
     }
     const hudIn = onCut && !showGoal;
     stepsEl.classList.toggle('is-away', !hudIn);
-    tuneEl?.classList.toggle('is-away', !hudIn);
+    tuneEl?.classList.toggle('is-away', !hudIn && !holdSettings);
   };
   const dismissGoal = () => {
     if (!goalLive) return;
@@ -991,6 +1262,28 @@ export function createCutPuzzle(opts: {
     else if (phase === 'place') finishPlace();
   });
 
+  const returnPreview = () => {
+    resultEl.classList.remove('is-on');
+    starsEl.classList.remove('is-pop');
+    starsEl.dataset.n = '0';
+    goalLive = false;
+    holdSettings = true;
+    holdPreview = true;
+    t = 0;
+    pan = null;
+    clearHistory();
+    hintLine.removeFromParent();
+    opts.clearBoard();
+    mountLevel();
+    rebuildHint();
+    lookX = 0;
+    lookZ = VIEW.cameraZ;
+    phase = 'show';
+    showNotebook();
+    paintSteps();
+    paintTools();
+    setThumbHit(false);
+  };
   const stopTool = (ev: Event) => {
     ev.preventDefault();
     ev.stopPropagation();
@@ -1018,6 +1311,11 @@ export function createCutPuzzle(opts: {
     paintSteps();
     paintTools();
   };
+  previewBtn.addEventListener('pointerdown', (ev) => {
+    stopTool(ev);
+    if (phase === 'show') return;
+    returnPreview();
+  });
   replayBtn.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
     if (phase !== 'score') return;
@@ -1028,8 +1326,21 @@ export function createCutPuzzle(opts: {
     if (phase !== 'score') return;
     leaveScore(true);
   });
-  goalEl.ownerDocument.addEventListener('pointerdown', () => {
+  goalEl.ownerDocument.addEventListener('pointerdown', (ev) => {
+    const target = ev.target;
+    if (target instanceof Element && target.closest('.puzzle-preview, .puzzle-settings, .puzzle-result, .puzzle-tool, .puzzle-submit-hit')) return;
     if (goalLive) dismissGoal();
+    if (holdPreview && phase === 'show') {
+      phase = 'pan';
+      pan = { from: lookX, to: puzzleCutX(), u: 0, then: 'cut' };
+      holdPreview = false;
+      holdSettings = false;
+      goalLive = level === 'butterfly';
+      goalTimer = 0;
+      if (goalLive) goalEl.classList.remove('is-fade');
+      paintSteps();
+      opts.spawnBoard();
+    }
   });
   hintBtn.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
@@ -1292,9 +1603,11 @@ export function createCutPuzzle(opts: {
         paintTools();
         setThumbHit(false);
         opts.setLook(lookX, lookZ);
-        if (t >= PUZZLE.showDur) {
+        if (t >= PUZZLE.showDur && !holdPreview) {
           phase = 'pan';
           pan = { from: lookX, to: puzzleCutX(), u: 0, then: 'cut' };
+          holdPreview = false;
+          holdSettings = false;
           goalLive = level === 'butterfly';
           goalTimer = 0;
           if (goalLive) goalEl.classList.remove('is-fade');
@@ -1327,6 +1640,7 @@ export function createCutPuzzle(opts: {
       hit.remove();
       undoBtn.remove();
       hintBtn.remove();
+      previewBtn.remove();
       hintLine.geometry.dispose();
       hintMat.dispose();
       stepsEl.remove();
@@ -1351,14 +1665,28 @@ export function createCutPuzzle(opts: {
       ringFace.dispose();
       shadow.geometry.dispose();
       shadowMat.dispose();
+      eyeMat.map?.dispose();
       eyeMat.dispose();
+      butterflyEyeMat.map?.dispose();
       butterflyEyeMat.dispose();
-      butterflyEyeShadowMat.dispose();
+      butterflyShadow.map?.dispose();
+      butterflyShadow.dispose();
+      shadowFace.map?.dispose();
       shadowFace.dispose();
+      shadowEdge.map?.dispose();
+      shadowEdge.dispose();
+      turtleHeadRimMat.map?.dispose();
+      turtleHeadRimMat.dispose();
+      butterflyEyeShadowMat.dispose();
+      pieceShadowMat.dispose();
+      turtleOuterDropMat.dispose();
+      butterflyOuterDropMat.dispose();
       shadowEdge.dispose();
       butterflyShadow.dispose();
       paperShade.dispose();
+      headFace.map?.dispose();
       headFace.dispose();
+      headEdge.map?.dispose();
       headEdge.dispose();
     },
   };

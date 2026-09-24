@@ -60,7 +60,7 @@
 8. **无 WebGPU 则明确失败**，不静默 WebGL  
 9. **玩法参数只改 `src/game/design.ts`**。拼图关右上角齿轮可调笔记本和图案阴影，没有别的调试面板。砍飞必须质量归一（`J = mass * Δv`），禁止固定冲量打所有块。顿帧只冻**本刀新块**；震屏只渲染前偏相机。  
 10. **木板切开只切 2D 轮廓再竖直挤出 + 半平面内收倒角**（`userData.profile`）。块要封口。禁止锥台、禁止用 3D CSG/剖分去切倒角木板、禁止整块缩小 inset。细则：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md)「几何」。圆柱等回转体另走 3D 平面剖（[docs/CYLINDER-CUT.md](docs/CYLINDER-CUT.md)），不要缩短网格冒充。  
-11. **iOS**：`appId` = `com.wangzhixuan.islash.cut`，显示名 Islash Cut；真机不要 Simulator。  
+11. **iOS**：`appId` = `com.wangzhixuan.islash.notebook`，显示名 Islash Note。旧包 `com.wangzhixuan.islash.cut` 留在手机上，不要改回那个包名。真机不要 Simulator。  
 
 ## 命令
 

@@ -6,8 +6,8 @@ import type { CapacitorConfig } from '@capacitor/cli';
  * - base './' on Vite → relative assets for offline WebView
  */
 const config: CapacitorConfig = {
-  appId: 'com.wangzhixuan.islash.cut',
-  appName: 'Islash Cut',
+  appId: 'com.wangzhixuan.islash.notebook',
+  appName: 'Islash Note',
   webDir: 'dist',
   server: {
     androidScheme: 'https',

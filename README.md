@@ -44,7 +44,7 @@ npm run dev
 
 ## iOS 真机
 
-包名 **`com.wangzhixuan.islash.cut`**，显示名 **Islash Cut**（勿与旧 hapticstest 混用）。
+包名 **`com.wangzhixuan.islash.notebook`**，显示名 **Islash Note**。不要改回 `com.wangzhixuan.islash.cut`，那是手机上已经装好的旧包。
 
 ```bash
 npm run ios             # 日常：build + sync + 开 Xcode

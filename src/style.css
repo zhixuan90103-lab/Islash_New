@@ -321,7 +321,7 @@ body.native-app #shell {
 
 .puzzle-settings-panel label {
   display: grid;
-  grid-template-columns: 52px 1fr 36px;
+  grid-template-columns: 64px 1fr 36px;
   align-items: center;
   gap: 6px;
 }
@@ -465,6 +465,30 @@ body.native-app #shell {
 
 .puzzle-tool.is-ready {
   opacity: 1;
+}
+
+.puzzle-preview {
+  position: absolute;
+  right: 76px;
+  bottom: calc(var(--safe-bottom) + 28px);
+  z-index: 6;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #fff;
+  color: #6b7280;
+  pointer-events: auto;
+  box-shadow: 0 4px 0 rgba(107, 114, 128, 0.22);
+}
+
+.puzzle-preview svg {
+  width: 22px;
+  height: 22px;
+  display: block;
 }
 
 .puzzle-result {

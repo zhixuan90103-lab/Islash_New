@@ -5,8 +5,8 @@ import type { Poly2 } from './woodProfile';
 /** 乌龟关零件。壳是上半圆，左右腿和头各是一个四分之一圆，眼睛是小圆。 */
 export const TURTLE = {
   r: 0.92,
-  dark: 0x1f8a3a,
-  light: 0x8ed84a,
+  dark: 0x93af48,
+  light: 0xcee2ab,
   shadow: 0xc5cec6,
   eye: 0x1a1a1a,
   /** 第一次亮按钮：平移加转动后的轮廓重合。再切不再关掉。 */
@@ -42,9 +42,8 @@ function shiftX(poly: Poly2[], dx: number): Poly2[] {
   return poly.map((p) => ({ x: p.x + dx, y: p.y }));
 }
 
-export function turtleParts(r = TURTLE.r): TurtlePart[] {
+function turtleBaseParts(r = TURTLE.r): TurtlePart[] {
   const shell = sector(r, Math.PI, 0, 20);
-  // 朝向不动：左下那块原样平移到右侧，右下那块原样平移到左侧。
   const legL = shiftX(sector(r, Math.PI, Math.PI * 1.5, 12), r);
   const legR = shiftX(sector(r, Math.PI * 1.5, Math.PI * 2, 12), -r);
   return [
@@ -52,6 +51,28 @@ export function turtleParts(r = TURTLE.r): TurtlePart[] {
     { id: 'legL', poly: legL, dark: false },
     { id: 'legR', poly: legR, dark: false },
   ];
+}
+
+/** 绕扇形自己的圆心放大，当作底下那层色影。 */
+function enlargeAbout(poly: Poly2[], origin: Poly2, scale = 1.2): Poly2[] {
+  return poly.map((p) => ({
+    x: origin.x + (p.x - origin.x) * scale,
+    y: origin.y + (p.y - origin.y) * scale,
+  }));
+}
+
+export function turtleParts(r = TURTLE.r): TurtlePart[] {
+  return turtleBaseParts(r).map((part) => {
+    const origin = part.id === 'legL' ? { x: r, y: 0 }
+      : part.id === 'legR' ? { x: -r, y: 0 }
+      : { x: 0, y: 0 };
+    return { ...part, poly: enlargeAbout(part.poly, origin) };
+  });
+}
+
+/** 和零件一样大的一层，盖在放大色影上面。 */
+export function turtleShadeCaps(r = TURTLE.r): Poly2[][] {
+  return turtleBaseParts(r).map((part) => part.poly);
 }
 
 export function turtleHeadPoly(r = TURTLE.r): Poly2[] {
@@ -73,8 +94,8 @@ export function turtleInkTexture(): THREE.CanvasTexture {
   canvas.height = n;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('turtle ink');
-  const dark = '#1f8a3a';
-  const light = '#8ed84a';
+  const dark = '#93af48';
+  const light = '#cee2ab';
   ctx.fillStyle = light;
   ctx.fillRect(0, 0, n, n);
   ctx.fillStyle = dark;

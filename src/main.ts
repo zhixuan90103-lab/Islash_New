@@ -99,7 +99,9 @@ async function boot(): Promise<void> {
 
   // Optional: document.body.classList.add('debug-safe-area')
 
-  const slash = await mountSlashWorld(stage, scene, camera, () => latestLayout);
+  const slash = await mountSlashWorld(stage, scene, camera, () => latestLayout, (light, dark) => {
+    backdrop.setGrid(light, dark);
+  });
   const clock = new THREE.Clock();
 
   renderer.setAnimationLoop(() => {
