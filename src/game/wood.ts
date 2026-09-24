@@ -207,8 +207,8 @@ export type WoodSet = {
   edgeMat: THREE.MeshLambertMaterial;
   spawn: (next?: boolean) => void;
   spawnSquare: () => void;
-  spawnDisc: () => void;
-  spawnSolidDisc: (color: number, edge: number) => void;
+  spawnDisc: (atX?: number, fit?: number) => void;
+  spawnSolidDisc: (color: number, edge: number, atX?: number, fit?: number) => void;
   clear: () => void;
   forget: (mesh: THREE.Mesh) => void;
   track: (mesh: THREE.Mesh) => void;
@@ -347,7 +347,7 @@ export function createWoodSet(
   };
 
   let ink: THREE.CanvasTexture | null = null;
-  const spawnDisc = () => {
+  const spawnDisc = (atX = 0, fit = 1) => {
     clear();
     const profile = circleProfileAt(0, 0, TURTLE.r, 40);
     const depth = PAPER.depth;
@@ -364,10 +364,8 @@ export function createWoodSet(
       (geom.userData.profile as Poly2[] | undefined) ?? profile;
     mesh.userData.depth = depth;
     mesh.userData.puzzleRole = 'stock';
-    mesh.geometry.computeBoundingBox();
-    const bb = mesh.geometry.boundingBox;
-    const minY = bb ? bb.min.y : 0;
-    mesh.position.set(0, viewHalfH() + CUT.enterPad - minY, 0);
+    mesh.scale.setScalar(fit);
+    mesh.position.set(atX, WOOD.lift, 0);
     mesh.userData.originVolume = pieceVolume(mesh);
     scene.add(mesh);
     prepareCuttable(mesh);
@@ -376,7 +374,7 @@ export function createWoodSet(
     spawned.push(mesh);
   };
 
-  const spawnSolidDisc = (color: number, _edgeColor: number) => {
+  const spawnSolidDisc = (color: number, _edgeColor: number, atX = 0, fit = 1) => {
     clear();
     const profile = circleProfileAt(0, 0, TURTLE.r, 40);
     const depth = PAPER.depth;
@@ -392,10 +390,8 @@ export function createWoodSet(
       (geom.userData.profile as Poly2[] | undefined) ?? profile;
     mesh.userData.depth = depth;
     mesh.userData.puzzleRole = 'stock';
-    mesh.geometry.computeBoundingBox();
-    const bb = mesh.geometry.boundingBox;
-    const minY = bb ? bb.min.y : 0;
-    mesh.position.set(0, viewHalfH() + CUT.enterPad - minY, 0);
+    mesh.scale.setScalar(fit);
+    mesh.position.set(atX, WOOD.lift, 0);
     mesh.userData.originVolume = pieceVolume(mesh);
     scene.add(mesh);
     prepareCuttable(mesh);

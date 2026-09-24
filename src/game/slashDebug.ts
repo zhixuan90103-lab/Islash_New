@@ -48,31 +48,34 @@ type FlashSeg = {
   ownerId?: number;
 };
 
-/** 方向跟夹缝，长度拉到 spanMin 再甩出出端。 */
+/** 方向跟夹缝，长度就是这一刀从入点到出点。 */
 function flashAxis(
   c0: DesignPoint,
   c1: DesignPoint,
   finale = false,
 ): [DesignPoint, DesignPoint] {
+  if (!finale) {
+    const dx = c1.x - c0.x;
+    const dy = c1.y - c0.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const extra = len * 0.15;
+    return [
+      { x: c0.x - ux * extra, y: c0.y - uy * extra },
+      { x: c1.x + ux * extra, y: c1.y + uy * extra },
+    ];
+  }
   const dx = c1.x - c0.x;
   const dy = c1.y - c0.y;
   const len = Math.hypot(dx, dy) || 1;
   const ux = dx / len;
   const uy = dy / len;
-  if (finale) {
-    const mid = { x: (c0.x + c1.x) * 0.5, y: (c0.y + c1.y) * 0.5 };
-    const half = Math.max(len * 0.5, FINALE.bladeSpan * 0.5);
-    return [
-      { x: mid.x - ux * half, y: mid.y - uy * half },
-      { x: mid.x + ux * half, y: mid.y + uy * half },
-    ];
-  }
-  const span =
-    Math.max(len, FLASH.spanMin) * (1 + FLASH.overshootRatio) + FLASH.overshoot;
-  const back = FLASH.overshootBack;
+  const mid = { x: (c0.x + c1.x) * 0.5, y: (c0.y + c1.y) * 0.5 };
+  const half = Math.max(len * 0.5, FINALE.bladeSpan * 0.5);
   return [
-    { x: c0.x - ux * back, y: c0.y - uy * back },
-    { x: c0.x + ux * span, y: c0.y + uy * span },
+    { x: mid.x - ux * half, y: mid.y - uy * half },
+    { x: mid.x + ux * half, y: mid.y + uy * half },
   ];
 }
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { applyBladeImpulse, pieceVolume } from './bladeForce';
-import { boardCutProgress, CUT, FINALE, FLASH, FX, PAPER, SHAKE, WOOD } from './design';
+import { boardCutProgress, CUT, FINALE, FLASH, FX, PAPER, puzzleCutX, SHAKE, WOOD } from './design';
 import { createCutPuzzle } from './cutPuzzle';
 import { BUTTERFLY } from './butterflyLevel';
 import { localIsDark, TURTLE } from './turtleLevel';
@@ -75,8 +75,10 @@ export async function mountSlashWorld(
     uiRoot: document.getElementById('ui-root'),
     physics,
     spawnBoard: () => {
-      if (puzzle.level() === 'butterfly') wood.spawnSolidDisc(BUTTERFLY.pink, BUTTERFLY.edge);
-      else wood.spawnDisc();
+      const atX = puzzleCutX();
+      const fit = puzzle.sheetScale();
+      if (puzzle.level() === 'butterfly') wood.spawnSolidDisc(BUTTERFLY.pink, BUTTERFLY.edge, atX, fit);
+      else wood.spawnDisc(atX, fit);
       const sheet = wood.cuttables[0];
       if (sheet) puzzle.attachSheet(sheet);
     },
@@ -95,9 +97,12 @@ export async function mountSlashWorld(
       wood.forget(mesh);
     },
     clearBoard: () => wood.clear(),
-    beginEnter,
     haltFly: () => halt.fly(),
     camera,
+    setLook: (x, z) => {
+      shake.setLookX(x);
+      if (z != null) shake.setLookZ(z);
+    },
     faceMat: wood.faceMat,
     edgeMat: wood.edgeMat,
   });
@@ -505,7 +510,7 @@ export async function mountSlashWorld(
 
   const input = createSlashInput(stage, getLayout, {
     onStroke: (stroke) => {
-      if (puzzle.phase() === 'place') return;
+      if (puzzle.phase() !== 'cut') return;
       if (stroke.points.length === 1) {
         if (syncTrails(stroke)) overlay.begin(stroke.pointerId);
         gameAudio.unlock();
@@ -514,7 +519,7 @@ export async function mountSlashWorld(
       }
     },
     onTip: (stroke, p) => {
-      if (puzzle.phase() === 'place') return;
+      if (puzzle.phase() !== 'cut') return;
       if (syncTrails(stroke)) {
         overlay.ensureTrail(stroke.pointerId);
         overlay.push(stroke.pointerId, p);
@@ -525,7 +530,7 @@ export async function mountSlashWorld(
       else overlay.setPredicted(stroke.pointerId, []);
     },
     onMove: (stroke, lastSeg, dtSec) => {
-      if (puzzle.phase() === 'place') return;
+      if (puzzle.phase() !== 'cut') return;
       if (!puzzle.canCut()) {
         boardFingers.delete(stroke.pointerId);
         return;
@@ -663,6 +668,52 @@ export async function mountSlashWorld(
     },
   });
 
+  const paperShadows = new Map<THREE.Mesh, THREE.Mesh>();
+  const paperShadowMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: PAPER.shadowOpacity,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const syncPaperShadows = () => {
+    const live = new Set<THREE.Mesh>();
+    for (const mesh of wood.cuttables) {
+      if (mesh.userData.puzzleRole !== 'stock') continue;
+      live.add(mesh);
+      mesh.castShadow = false;
+      let shadow = paperShadows.get(mesh);
+      if (!shadow) {
+        shadow = new THREE.Mesh(mesh.geometry, paperShadowMat);
+        shadow.frustumCulled = false;
+        shadow.renderOrder = 1;
+        scene.add(shadow);
+        paperShadows.set(mesh, shadow);
+      }
+      shadow.geometry = mesh.geometry;
+      const onBook = puzzle.phase() === 'carry'
+        || puzzle.phase() === 'place'
+        || puzzle.phase() === 'inspect'
+        || puzzle.phase() === 'score';
+      const ox = onBook ? PAPER.shadowX * 0.4 : PAPER.shadowX;
+      const oy = onBook ? PAPER.shadowY * 0.4 : PAPER.shadowY;
+      shadow.position.set(
+        mesh.position.x + ox,
+        mesh.position.y + oy,
+        mesh.position.z - (onBook ? 0.006 : 0.02),
+      );
+      shadow.renderOrder = onBook ? 5 : 1;
+      shadow.quaternion.copy(mesh.quaternion);
+      shadow.scale.copy(mesh.scale);
+      shadow.visible = mesh.visible;
+    }
+    for (const [mesh, shadow] of paperShadows) {
+      if (live.has(mesh)) continue;
+      shadow.removeFromParent();
+      paperShadows.delete(mesh);
+    }
+  };
+
   return {
     step: (dt) => {
       puzzle.step(dt);
@@ -726,6 +777,7 @@ export async function mountSlashWorld(
         p.keep.position.copy(p.keepRest).add(p.squeeze);
         p.drop.position.copy(p.dropRest).addScaledVector(p.squeeze, -1);
       }
+      syncPaperShadows();
       shake.step(dt);
       if (nextBoardIn >= 0 && !puzzle.canCut() && puzzle.phase() !== 'show') {
         nextBoardIn -= dt;
@@ -741,6 +793,9 @@ export async function mountSlashWorld(
     applyView: () => shake.applyView(),
     restoreView: () => shake.restoreView(),
     dispose: () => {
+      for (const shadow of paperShadows.values()) shadow.removeFromParent();
+      paperShadows.clear();
+      paperShadowMat.dispose();
       gameAudio.dispose();
       bladeHaptics.cancel();
       input.dispose();

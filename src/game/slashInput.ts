@@ -176,7 +176,7 @@ export function createSlashInput(
 
   const onDown = (e: PointerEvent) => {
     const t = e.target;
-    if (t instanceof Element && t.closest('.debug-panel')) return;
+    if (t instanceof Element && t.closest('.debug-panel, .puzzle-settings, .puzzle-result')) return;
     if (live.has(e.pointerId)) finish(e.pointerId);
     if (live.size >= START.maxStrokes) return;
     const layout = getLayout();

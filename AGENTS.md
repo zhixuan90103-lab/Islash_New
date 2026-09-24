@@ -9,7 +9,7 @@
 **TypeScript + Three.js WebGPU + Vite + Capacitor iOS**。  
 竖屏 **390×844** contain letterbox。画面规范见 [docs/UI.md](docs/UI.md)。`base: './'`。  
 当前玩法：用关卡给的一张料，把指定零件裁出来装进完成图案（准了爽，不准也好看；都能过关）。规范：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。第一关蝴蝶 1 步，第二关乌龟 2 步。  
-滑动=刀。贯穿切开才扣一步。切开的都留下；还有步就能再切。右上角一直有步数。先看左侧笔记本剪影 2 秒，镜头自动向右进入裁剪区。轮廓齐了或步数用完，弹出「装上」，点了才停刀，切好的块跟着镜头回到笔记本再拼，两指可旋转那一块。拼完后才弹出界面。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；画面 [docs/UI.md](docs/UI.md)。
+滑动=刀。贯穿切开才扣一步。切开的都留下；还有步就能再切。切的时候左上角是 Moves 和剩余步数。先看左侧笔记本剪影 2 秒，镜头自动向右进入裁剪区。轮廓齐了或步数用完，弹出「装上」，点了才停刀，切好的块跟着镜头回到笔记本再拼，两指可旋转那一块。拼的时候点「完成」才计分出星。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；画面 [docs/UI.md](docs/UI.md)。
 
 ## 入口地图
 
@@ -30,7 +30,7 @@
 | 划切规范 | `docs/SLASH-DESIGN.md`（参数 `src/game/design.ts`） |
 | 打击感 | `docs/SLASH-FEEL.md`（`SHAKE` `FX` `TRAIL`；`screenShake.ts`；划痕 `slashTrail.ts`） |
 | 意图识别 | `docs/SLASH-INTENT.md`（`slashIntent.ts`；余势 `slashFollow.ts`） |
-| 关卡背景 + 投影 | `src/game/backdrop.ts`（浅蓝纯色，不用道场贴图） |
+| 关卡背景 + 投影 | `src/game/backdrop.ts`（棋盘格 `#afc4d9` / `#abc0d5`，钉在世界里） |
 | 灯光 | `src/game/lights.ts`（参数 `LIGHT`） |
 | 进度条 | `src/game/cutProgressHud.ts`（拼图关已隐藏） |
 | 划切调研 | `docs/SLASH-RESEARCH.md` |
@@ -58,7 +58,7 @@
 6. **Pad 只改外层视口**，不改 `DESIGN_*`  
 7. **改 Swift 改 `plugins/native-haptics/`** 再 `ios:bootstrap`；震动接线见 `docs/HAPTICS.md`。Capacitor 8 的 `SceneDelegate` 必须 `rootViewController = BridgeViewController()`（默认 `CAPBridgeViewController` 不会注册插件）。不要用 JS `prepare()` 判断是否接上；真机 HUD 看 `plugin: true` + 点「点我震动」。  
 8. **无 WebGPU 则明确失败**，不静默 WebGL  
-9. **玩法参数只改 `src/game/design.ts`**。拼图关不挂调试面板。砍飞必须质量归一（`J = mass * Δv`），禁止固定冲量打所有块。顿帧只冻**本刀新块**；震屏只渲染前偏相机。  
+9. **玩法参数只改 `src/game/design.ts`**。拼图关右上角齿轮可调笔记本和图案阴影，没有别的调试面板。砍飞必须质量归一（`J = mass * Δv`），禁止固定冲量打所有块。顿帧只冻**本刀新块**；震屏只渲染前偏相机。  
 10. **木板切开只切 2D 轮廓再竖直挤出 + 半平面内收倒角**（`userData.profile`）。块要封口。禁止锥台、禁止用 3D CSG/剖分去切倒角木板、禁止整块缩小 inset。细则：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md)「几何」。圆柱等回转体另走 3D 平面剖（[docs/CYLINDER-CUT.md](docs/CYLINDER-CUT.md)），不要缩短网格冒充。  
 11. **iOS**：`appId` = `com.wangzhixuan.islash.cut`，显示名 Islash Cut；真机不要 Simulator。  
 
@@ -80,8 +80,8 @@ npm run ios           # build + sync + 开 Xcode
 
 - 玩法循环：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；刀：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md) + [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；打击感：[docs/SLASH-FEEL.md](docs/SLASH-FEEL.md)（入板锁 A、出板清、板心不锁；帮助指出 B；乱划 1.5 倍钉死到出板；余势拦弧线，短距离尖角才第二刀；有效刀钉到抬起）  
 - 保留：adapt / create-renderer / haptics / plugins / `base`  
-- 触控：整屏走刀，只对料判切；可同时按下最多 3 指，**有效刀只有一把**。指定零件轮廓齐了或步数用完，出「装上」，点了才停刀，块跟着镜头回到笔记本，玩家自己摆。拼完后才弹出界面。  
-- UI：只挂 `#ui-root`；进度条 / 调试面板不显示。画面规范 [docs/UI.md](docs/UI.md)。  
+- 触控：整屏走刀，只对料判切；可同时按下最多 3 指，**有效刀只有一把**。指定零件轮廓齐了或步数用完，出「装上」，点了才停刀，块跟着镜头回到笔记本，玩家自己摆。点「完成」才计分出星。  
+- UI：只挂 `#ui-root`；进度条不显示。齿轮设置在切的时候出现。画面规范 [docs/UI.md](docs/UI.md)。  
 - 音效：`src/audio/gameAudio.ts` + `docs/AUDIO.md`；禁止热路径 `new Audio()` / 每发一次桥  
 
 ## 刻意不做

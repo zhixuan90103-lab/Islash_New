@@ -37,6 +37,9 @@ export function createScreenShake(camera: THREE.PerspectiveCamera): {
   step: (dt: number) => void;
   applyView: () => void;
   restoreView: () => void;
+  /** 镜头所看的世界 X。+X 是屏幕右方。 */
+  setLookX: (x: number) => void;
+  setLookZ: (z: number) => void;
 } {
   const rest = new THREE.Vector3(0, 0, VIEW.cameraZ);
   let trauma = 0;
@@ -195,6 +198,13 @@ export function createScreenShake(camera: THREE.PerspectiveCamera): {
     restoreView: () => {
       camera.position.copy(rest);
       camera.rotation.set(0, 0, 0);
+    },
+
+    setLookX: (x: number) => {
+      rest.x = x;
+    },
+    setLookZ: (z: number) => {
+      rest.z = z;
     },
   };
 }

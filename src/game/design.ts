@@ -1,3 +1,5 @@
+import { DESIGN_HEIGHT, DESIGN_WIDTH } from '../adapt/design';
+
 /**
  * 划切玩法设计数据。改这里即改规则，不要在各模块里再写魔法数。
  *
@@ -30,6 +32,10 @@ export const PAPER = {
   edge: 0xf7f4ee,
   /** 切开后两块沿切缝分开的总宽度。再靠碰撞分开，不要留宽槽。 */
   cutGap: 0.012,
+  /** 落影：向右、向下。笔记和裁切料用同一套。 */
+  shadowX: 0.04,
+  shadowY: -0.05,
+  shadowOpacity: 0.28,
 };
 
 /** 长宽高乘数，默认 1 = 保持 WOOD_SHAPE。lift 为相对画面中心的 Y。 */
@@ -90,9 +96,47 @@ export const CUT_DEFAULT = { ...CUT };
  * 切割拼图（docs/CUT-PUZZLE.md）。
  * 第一关：蝴蝶，纯粉圆，1 步。第二关：乌龟，两色圆，2 步。
  */
+/**
+ * 裁剪区在笔记本右侧。镜头在 +Z 朝 -Z 看时，世界 +X 是屏幕右方。
+ * 笔记本留在 x=0。这边距让另一页完全出画：半幅画面 + 笔记本半宽 + 一条缝，
+ * 再往右一整屏，落到方格纸更靠右的格子上。
+ */
+/** 背景棋盘格贴齐这一屏：横 4 格、竖 9 格。 */
+export const BACKDROP_GRID = {
+  z: -0.06,
+  cols: 4,
+  rows: 9,
+};
+
+export function backdropCellW(): number {
+  const dist = VIEW.cameraZ - BACKDROP_GRID.z;
+  const h = 2 * dist * Math.tan((VIEW.fov * Math.PI) / 360);
+  const viewW = h * (DESIGN_WIDTH / DESIGN_HEIGHT);
+  return viewW / BACKDROP_GRID.cols;
+}
+
+export function puzzleCutX(): number {
+  const halfW = viewHalfH() * (DESIGN_WIDTH / DESIGN_HEIGHT);
+  const screenW = halfW * 2;
+  const raw = halfW + 1.05 + 0.45 + screenW;
+  const cell = backdropCellW();
+  return Math.round(raw / cell) * cell;
+}
+
+/** 笔记调试。大小 1 是现在这张。左右负数往左，上下正数往上。 */
+export const NOTEBOOK = {
+  scale: 1.15,
+  x: -0.12,
+  y: 0.15,
+  /** 绕内页中心，度。正数逆时针。 */
+  angle: -4,
+};
+
 export const PUZZLE = {
-  showDur: 2.2,
+  showDur: 2,
   thumbScale: 0.22,
+  /** 镜头从笔记本滑到裁剪区、再滑回去的时间（秒）。长短还没锁。 */
+  panDur: 0.85,
   /** 切的时候图在上方缩小，比料小一截，认槽但不描边。 */
   cutViewScale: 0.4,
   cutViewX: 1.02,
@@ -302,7 +346,7 @@ export const TRAIL = {
   smooth: 0,
   /** 绘制时每段 Catmull-Rom 细分。1 = 折线。 */
   subdiv: 6,
-  headW: 6.5,
+  headW: 2,
   tailW: 0,
   /** 刀尖三角沿前进方向探出（设计 px）。 */
   tipLen: 10,
@@ -323,21 +367,21 @@ export const FLASH = {
   /** 刀光扫过总时长（秒）。 */
   life: 0.3,
   /** 刚从入边出来、还短时的中段半宽（最宽）。 */
-  coreW: 15,
+  coreW: 5.25,
   /** 拉满切缝时的中段半宽（最细）。 */
-  coreWMin: 1.65,
+  coreWMin: 0.5775,
   /** 变长阶段占寿命比例；其余时间拉满后淡出。 */
   grow: 0.55,
   /** 变长开始时已占全长的比例（避免第一帧过短）。 */
   growStart: 0.28,
   /** 外发光模糊半径（设计 px），一层 shadowBlur。 */
-  glowW: 33,
+  glowW: 11.55,
   /** 沿夹缝方向拉长的最短刀光（设计 px）。短缝也按这个扫。 */
-  spanMin: 300,
+  spanMin: 150,
   /** 入端向外探出（px），刀光从板外起笔。 */
-  overshootBack: 72,
+  overshootBack: 36,
   /** 出端再甩出（px）。 */
-  overshoot: 42,
+  overshoot: 21,
   /** 再按 span 比例甩出。 */
   overshootRatio: 0.15,
   /** 预览（未切开）相对切开的亮度。 */

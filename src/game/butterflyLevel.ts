@@ -4,8 +4,8 @@ import { TURTLE } from './turtleLevel';
 /** 蝴蝶：两个半圆左右对调，朝向不变。两只眼睛是已经画上的小圆。 */
 export const BUTTERFLY = {
   r: TURTLE.r,
-  pink: 0xef4b86,
-  edge: 0xc4316c,
+  pink: 0xfbcad6,
+  edge: 0xfbcad6,
   eye: 0x1a1a1a,
 };
 
@@ -33,10 +33,30 @@ function shiftX(poly: Poly2[], dx: number): Poly2[] {
   return poly.map((p) => ({ x: p.x + dx, y: p.y }));
 }
 
+/**
+ * 半圆绕自己的圆心放大 20%，再往外平移。
+ * 平移距离让弧线最靠里的点落回原来的圆心，两边在这一点相接。
+ */
+function biggerWing(r: number, side: 1 | -1): Poly2[] {
+  const radius = r * 1.2;
+  const a0 = side > 0 ? Math.PI / 2 : -Math.PI / 2;
+  const a1 = side > 0 ? Math.PI * 1.5 : Math.PI / 2;
+  return shiftX(semicircle(radius, a0, a1), side * radius);
+}
+
 export function butterflyParts(r = BUTTERFLY.r): ButterflyPart[] {
   return [
-    { id: 'wingL', poly: shiftX(semicircle(r, Math.PI / 2, Math.PI * 1.5), r), dark: null },
-    { id: 'wingR', poly: shiftX(semicircle(r, -Math.PI / 2, Math.PI / 2), -r), dark: null },
+    { id: 'wingL', poly: biggerWing(r, 1), dark: null },
+    { id: 'wingR', poly: biggerWing(r, -1), dark: null },
+  ];
+}
+
+/** 和裁切纸一样大的两片半圆，圆心与放大后的两片重合。 */
+export function butterflyBody(r = BUTTERFLY.r): Poly2[][] {
+  const center = r * 1.1;
+  return [
+    shiftX(semicircle(r, Math.PI / 2, Math.PI * 1.5), center),
+    shiftX(semicircle(r, -Math.PI / 2, Math.PI / 2), -center),
   ];
 }
 

@@ -16,7 +16,7 @@ import {
 } from './adapt/design';
 import { VIEW, mountSlashWorld } from './game';
 import { mountGameLights } from './game/lights';
-import { loadBackdropTexture, mountBackdropPlane } from './game/backdrop';
+import { mountBackdropPlane } from './game/backdrop';
 import {
   mountDevicePreview,
   type DevicePreviewController,
@@ -47,9 +47,8 @@ async function boot(): Promise<void> {
 
   const renderer = await createRenderer({ container: stage });
   const scene = new THREE.Scene();
-  const bgTex = await loadBackdropTexture();
-  scene.background = new THREE.Color(VIEW.bgEdge);
-  mountBackdropPlane(scene, bgTex);
+  scene.background = new THREE.Color(0xafc4d9);
+  const backdrop = mountBackdropPlane(scene);
 
   const camera = new THREE.PerspectiveCamera(
     VIEW.fov,
@@ -106,6 +105,7 @@ async function boot(): Promise<void> {
   renderer.setAnimationLoop(() => {
     slash.step(clock.getDelta());
     slash.applyView();
+    backdrop.sync(camera);
     renderer.render(scene, camera);
     slash.restoreView();
   });

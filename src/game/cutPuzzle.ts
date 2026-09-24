@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { DESIGN_HEIGHT, DESIGN_WIDTH } from '../adapt/design';
-import { PAPER, PUZZLE, viewHalfH } from './design';
+import { NOTEBOOK, PAPER, PUZZLE, puzzleCutX, TRAIL, VIEW } from './design';
 import { type Poly2 } from './woodProfile';
 import { createChamferedSolid } from './woodChamfer';
 import {
@@ -11,10 +10,10 @@ import {
   turtleParts,
   type TurtlePart,
 } from './turtleLevel';
-import { BUTTERFLY, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
+import { BUTTERFLY, butterflyBody, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
 import type { SlashPhysics } from './slashPhysics';
 
-export type PuzzlePhase = 'show' | 'fly' | 'cut' | 'place' | 'install' | 'inspect' | 'score';
+export type PuzzlePhase = 'show' | 'pan' | 'cut' | 'carry' | 'place' | 'inspect' | 'score';
 
 export type PieceRole = 'stock';
 
@@ -28,9 +27,13 @@ export type CutPuzzle = {
   forget: (mesh: THREE.Mesh) => void;
   requestInstall: () => void;
   attachSheet: (mesh: THREE.Mesh) => void;
+  /** 裁切圆纸的缩放，和笔记本上的阴影一样大。 */
+  sheetScale: () => number;
   rememberCut: (parent: THREE.Mesh, a: THREE.Mesh, b: THREE.Mesh) => void;
   step: (dt: number) => void;
   dispose: () => void;
+  /** 按当前摆放计分并弹出星。怎么算拼完还没定，画面上先不接按钮。 */
+  scorePlacement: () => void;
 };
 
 function polyArea(poly: Poly2[]): number {
@@ -159,6 +162,7 @@ function makePartMesh(
   const mesh = new THREE.Mesh(geom, [face, edge]);
   mesh.castShadow = true;
   mesh.receiveShadow = true;
+  mesh.renderOrder = 2;
   mesh.userData.profile = profile;
   mesh.position.z = 0;
   return mesh;
@@ -172,15 +176,47 @@ function starRank(shape: number, color: number): number {
   return 1;
 }
 
+function roundedRectShape(w: number, h: number, r: number): THREE.Shape {
+  const radius = Math.min(r, w * 0.5, h * 0.5);
+  const x = -w / 2;
+  const y = -h / 2;
+  const shape = new THREE.Shape();
+  shape.moveTo(x + radius, y);
+  shape.lineTo(x + w - radius, y);
+  shape.quadraticCurveTo(x + w, y, x + w, y + radius);
+  shape.lineTo(x + w, y + h - radius);
+  shape.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  shape.lineTo(x + radius, y + h);
+  shape.quadraticCurveTo(x, y + h, x, y + h - radius);
+  shape.lineTo(x, y + radius);
+  shape.quadraticCurveTo(x, y, x + radius, y);
+  return shape;
+}
+
+/** 正面在本地 z=0，厚度往 -Z。组 0 是正面，组 1 是侧面。 */
+function slabGeometry(w: number, h: number, r: number, depth: number): THREE.ExtrudeGeometry {
+  const bevel = 0.016;
+  const geom = new THREE.ExtrudeGeometry(roundedRectShape(w, h, r), {
+    depth,
+    bevelEnabled: true,
+    bevelThickness: bevel,
+    bevelSize: bevel,
+    bevelSegments: 1,
+    curveSegments: 10,
+  });
+  geom.translate(0, 0, -(depth + bevel));
+  return geom;
+}
+
 export function createCutPuzzle(opts: {
   scene: THREE.Scene;
   uiRoot: HTMLElement | null;
   physics: SlashPhysics;
   spawnBoard: () => void;
   clearBoard: () => void;
-  beginEnter: () => void;
   haltFly: () => void;
   camera: THREE.Camera;
+  setLook: (x: number, z?: number) => void;
   mountPiece: (mesh: THREE.Mesh) => void;
   unmountPiece: (mesh: THREE.Mesh) => void;
   faceMat: THREE.MeshLambertMaterial;
@@ -188,39 +224,133 @@ export function createCutPuzzle(opts: {
 }): CutPuzzle {
   const shadowFace = new THREE.MeshLambertMaterial({ color: TURTLE.shadow });
   const shadowEdge = new THREE.MeshLambertMaterial({ color: 0xaeb6b0 });
+  const butterflyShadow = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.6,
+    depthWrite: false,
+  });
+  const paperShade = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false,
+  });
   const headFace = new THREE.MeshLambertMaterial({ color: TURTLE.dark });
   const headEdge = new THREE.MeshLambertMaterial({ color: 0x166b2c });
   const eyeMat = new THREE.MeshBasicMaterial({ color: TURTLE.eye });
+  const butterflyEyeMat = new THREE.MeshBasicMaterial({ color: 0xc7c77f });
+  const butterflyEyeShadowMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.28,
+    depthWrite: false,
+  });
   let level: 'turtle' | 'butterfly' = 'butterfly';
+  const shade = {
+    butterfly: { color: '#c98496', x: 0.1, y: 0, size: 1, angle: 5, opacity: 0.95 },
+    turtle: { color: '#c98496', x: 0.1, y: 0, size: 1, angle: 5, opacity: 1 },
+  };
+  let syncShadePanel = () => {};
+  const applyShade = () => {
+    const s = shade[level];
+    const hex = Number.parseInt(s.color.slice(1), 16);
+    const mats = level === 'butterfly' ? [butterflyShadow] : [shadowFace, shadowEdge];
+    for (const mat of mats) {
+      mat.color.set(hex);
+      mat.opacity = s.opacity;
+      mat.transparent = s.opacity < 1;
+      mat.depthWrite = s.opacity >= 1;
+    }
+    shadePivot.position.set(s.x, s.y, 0);
+    shadePivot.rotation.z = (s.angle * Math.PI) / 180;
+    shadePivot.scale.setScalar(s.size);
+    syncShadePanel();
+  };
   let parts: Array<TurtlePart | ButterflyPart> = [];
   const slots = new Map<string, THREE.Mesh>();
   const extras: THREE.Mesh[] = [];
-  const cardW = 2.05;
-  const cardH = 3.05;
-  const cardR = 0.22;
-  const cardShape = new THREE.Shape();
-  const hw = cardW / 2;
-  const hh = cardH / 2;
-  cardShape.moveTo(-hw + cardR, -hh);
-  cardShape.lineTo(hw - cardR, -hh);
-  cardShape.absarc(hw - cardR, -hh + cardR, cardR, -Math.PI / 2, 0, false);
-  cardShape.lineTo(hw, hh - cardR);
-  cardShape.absarc(hw - cardR, hh - cardR, cardR, 0, Math.PI / 2, false);
-  cardShape.lineTo(-hw + cardR, hh);
-  cardShape.absarc(-hw + cardR, hh - cardR, cardR, Math.PI / 2, Math.PI, false);
-  cardShape.lineTo(-hw, -hh + cardR);
-  cardShape.absarc(-hw + cardR, -hh + cardR, cardR, Math.PI, Math.PI * 1.5, false);
-  const card = new THREE.Mesh(
-    new THREE.ShapeGeometry(cardShape),
-    new THREE.MeshBasicMaterial({ color: 0xffffff }),
+  const shadowMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: PAPER.shadowOpacity,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const pageW = TURTLE.r * 2 + 0.22;
+  const pageH = pageW * 1.54;
+  const look = {
+    spine: 0.2,
+    rim: 0.09,
+    coverDepth: 0.11,
+    pageDepth: 0.07,
+    cover: '#db96a8',
+    page: '#fef2df',
+  };
+  const coverW = () => pageW + look.spine + look.rim;
+  const coverH = () => pageH + look.rim * 2;
+  const coverFace = new THREE.MeshBasicMaterial({ color: 0xdb96a8 });
+  const coverEdge = new THREE.MeshBasicMaterial({ color: 0xd590a2 });
+  const pageFace = new THREE.MeshBasicMaterial({ color: 0xfef2df });
+  const pageEdge = new THREE.MeshBasicMaterial({ color: 0xf6ead7 });
+  const ringFace = new THREE.MeshLambertMaterial({ color: 0xf4f7fb });
+  const coverFront = 0.02;
+  const tint = (hex: string, amt: number) => {
+    const n = Number.parseInt(hex.slice(1), 16);
+    const ch = (shift: number) => Math.max(0, ((n >> shift) & 255) - amt);
+    return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+  };
+  const page = new THREE.Mesh(slabGeometry(pageW, pageH, 0.06, look.pageDepth), [pageFace, pageEdge]);
+  page.position.z = coverFront + look.pageDepth;
+  const cover = new THREE.Mesh(
+    slabGeometry(coverW(), coverH(), 0.09, look.coverDepth),
+    [coverFace, coverEdge],
   );
-  card.position.z = -0.05;
+  cover.position.set(-(look.spine - look.rim) * 0.5, 0, coverFront);
+  const shadow = new THREE.Mesh(
+    new THREE.ShapeGeometry(roundedRectShape(coverW(), coverH(), 0.09)),
+    shadowMat,
+  );
+  shadow.position.set(cover.position.x + PAPER.shadowX, PAPER.shadowY, coverFront - 0.01);
+  shadow.renderOrder = 0;
+  const ringGeom = new THREE.CylinderGeometry(0.042, 0.042, 0.025, 18);
+  ringGeom.rotateX(Math.PI / 2);
+  const holeGeom = new THREE.CylinderGeometry(0.018, 0.018, 0.028, 14);
+  holeGeom.rotateX(Math.PI / 2);
+  const rings: THREE.Mesh[] = [];
+  const ringX = () => -pageW / 2 - look.spine * 0.5;
+  for (let i = 0; i < 7; i++) {
+    const y = -pageH * 0.38 + (pageH * 0.76 * i) / 6;
+    const ring = new THREE.Mesh(ringGeom, ringFace);
+    ring.position.set(ringX(), y, cover.position.z + 0.012);
+    const hole = new THREE.Mesh(holeGeom, coverFace);
+    hole.position.set(ringX(), y, cover.position.z + 0.016);
+    rings.push(ring, hole);
+  }
   const board = new THREE.Group();
-  board.add(card);
+  const notebookFrame = new THREE.Group();
+  notebookFrame.add(shadow);
+  notebookFrame.add(cover);
+  notebookFrame.add(page);
+  for (const ring of rings) notebookFrame.add(ring);
+  board.add(notebookFrame);
+  const PATTERN_FIT = 0.8;
+  const pattern = new THREE.Group();
+  pattern.scale.setScalar(PATTERN_FIT);
+  pattern.position.z = page.position.z + 0.012;
+  const shadePivot = new THREE.Group();
+  pattern.add(shadePivot);
+  board.add(pattern);
+  const placeNotebook = () => {
+    board.position.set(NOTEBOOK.x, NOTEBOOK.y, 0);
+    board.rotation.z = (NOTEBOOK.angle * Math.PI) / 180;
+    notebookFrame.scale.setScalar(NOTEBOOK.scale);
+  };
+  placeNotebook();
   opts.scene.add(board);
 
   const dropMesh = (mesh: THREE.Mesh) => {
-    board.remove(mesh);
+    shadePivot.remove(mesh);
     mesh.geometry.dispose();
   };
 
@@ -229,36 +359,67 @@ export function createCutPuzzle(opts: {
     slots.clear();
     for (const mesh of extras) dropMesh(mesh);
     extras.length = 0;
+    pattern.scale.setScalar(PATTERN_FIT);
+    pattern.rotation.z = level === 'turtle' ? Math.PI / 2 : 0;
+    pattern.position.x = 0;
+    pattern.position.z = page.position.z + 0.012;
     parts = level === 'turtle' ? turtleParts() : butterflyParts();
     for (const part of parts) {
-      const mesh = makePartMesh(part.poly, shadowFace, shadowEdge);
+      const mesh = makePartMesh(
+        part.poly,
+        level === 'butterfly' ? butterflyShadow : shadowFace,
+        level === 'butterfly' ? butterflyShadow : shadowEdge,
+      );
       mesh.name = part.id;
       slots.set(part.id, mesh);
-      board.add(mesh);
+      shadePivot.add(mesh);
     }
     const z = PAPER.depth * 0.7;
     if (level === 'turtle') {
       const head = makePartMesh(turtleHeadPoly(), headFace, headEdge);
       extras.push(head);
-      board.add(head);
+      shadePivot.add(head);
       const eyeAt = turtleEyeCenter();
       const eye = new THREE.Mesh(new THREE.CircleGeometry(TURTLE.r * 0.07, 16), eyeMat);
       eye.position.set(eyeAt.x, eyeAt.y, z);
+      eye.renderOrder = 3;
       extras.push(eye);
-      board.add(eye);
-      return;
+      shadePivot.add(eye);
+    } else {
+      for (const poly of butterflyBody()) {
+        const half = makePartMesh(poly, paperShade, paperShade);
+        half.position.z = PAPER.depth + 0.01;
+        half.renderOrder = 3;
+        extras.push(half);
+        shadePivot.add(half);
+      }
+      for (const at of butterflyEyes()) {
+        const halo = new THREE.Mesh(
+          new THREE.CircleGeometry(BUTTERFLY.r * 0.055 * 1.8, 16),
+          butterflyShadow,
+        );
+        halo.position.set(at.x, at.y, PAPER.depth + 0.02);
+        halo.renderOrder = 4;
+        extras.push(halo);
+        shadePivot.add(halo);
+        const eyeR = BUTTERFLY.r * 0.055;
+        const eyeShadow = new THREE.Mesh(new THREE.CircleGeometry(eyeR, 16), butterflyEyeShadowMat);
+        eyeShadow.position.set(at.x + 0.006, at.y - 0.007, PAPER.depth + 0.025);
+        eyeShadow.renderOrder = 5;
+        extras.push(eyeShadow);
+        shadePivot.add(eyeShadow);
+        const eye = new THREE.Mesh(new THREE.CircleGeometry(eyeR, 16), butterflyEyeMat);
+        eye.position.set(at.x, at.y, PAPER.depth + 0.03);
+        eye.renderOrder = 6;
+        extras.push(eye);
+        shadePivot.add(eye);
+      }
     }
-    for (const at of butterflyEyes()) {
-      const eye = new THREE.Mesh(new THREE.CircleGeometry(BUTTERFLY.r * 0.055, 16), eyeMat);
-      eye.position.set(at.x, at.y, z);
-      extras.push(eye);
-      board.add(eye);
-    }
+    applyShade();
   };
   mountLevel();
-  board.position.set(0, 0, 0);
   board.scale.set(1, 1, 1);
-  board.visible = false;
+  board.visible = true;
 
   const hit = document.createElement('button');
   hit.type = 'button';
@@ -267,16 +428,24 @@ export function createCutPuzzle(opts: {
   hit.setAttribute('aria-label', '装上');
   hit.tabIndex = -1;
 
+  const iconAttrs = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
+  const undoIcon =
+    `<svg ${iconAttrs}><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>`;
+  const hintIcon =
+    `<svg ${iconAttrs}><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>`;
+  const gearIcon =
+    `<svg ${iconAttrs}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>`;
+
   const undoBtn = document.createElement('button');
   undoBtn.type = 'button';
   undoBtn.className = 'puzzle-tool is-left';
-  undoBtn.textContent = '撤销';
+  undoBtn.innerHTML = undoIcon;
   undoBtn.setAttribute('aria-label', '撤销');
 
   const hintBtn = document.createElement('button');
   hintBtn.type = 'button';
   hintBtn.className = 'puzzle-tool is-right';
-  hintBtn.textContent = '提示';
+  hintBtn.innerHTML = hintIcon;
   hintBtn.setAttribute('aria-label', '提示');
 
   const hintMat = new THREE.LineDashedMaterial({
@@ -292,69 +461,217 @@ export function createCutPuzzle(opts: {
   const starsEl = document.createElement('div');
   starsEl.className = 'puzzle-stars';
   starsEl.setAttribute('aria-hidden', 'true');
+  const starSvg =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/></svg>';
   for (let i = 0; i < 3; i++) {
     const d = document.createElement('span');
     d.className = 'puzzle-star';
+    d.innerHTML = `<span class="puzzle-star-base">${starSvg}</span><span class="puzzle-star-gain">${starSvg}</span>`;
     starsEl.appendChild(d);
   }
 
-  const hud = document.createElement('div');
-  hud.className = 'puzzle-hud';
-  hud.setAttribute('aria-hidden', 'true');
-  const chip = document.createElement('div');
-  chip.className = 'puzzle-art-chip';
-  const chipInner = document.createElement('div');
-  chipInner.className = 'puzzle-art-chip-inner';
-  chip.appendChild(chipInner);
   const stepsEl = document.createElement('div');
-  stepsEl.className = 'puzzle-move';
+  stepsEl.className = 'puzzle-moves';
   const stepsLabel = document.createElement('div');
-  stepsLabel.className = 'puzzle-move-label';
-  stepsLabel.textContent = '步';
-  const stepsNum = document.createElement('div');
-  stepsNum.className = 'puzzle-move-n';
-  stepsEl.append(stepsLabel, stepsNum);
-  hud.append(chip, stepsEl);
-  hud.classList.add('is-on');
+  stepsLabel.className = 'puzzle-moves-label';
+  stepsLabel.textContent = 'Moves';
+  const stepsCount = document.createElement('div');
+  stepsCount.className = 'puzzle-moves-count';
+  stepsEl.append(stepsLabel, stepsCount);
+  const goalEl = document.createElement('div');
+  goalEl.className = 'puzzle-goal is-away';
+  goalEl.textContent = '在规定步数内裁剪出蝴蝶翅膀';
 
-  const preview = document.createElement('div');
-  preview.className = 'puzzle-preview-card';
-  preview.setAttribute('aria-hidden', 'true');
+  const applyLook = () => {
+    cover.geometry.dispose();
+    page.geometry.dispose();
+    shadow.geometry.dispose();
+    cover.geometry = slabGeometry(coverW(), coverH(), 0.09, look.coverDepth);
+    page.geometry = slabGeometry(pageW, pageH, 0.06, look.pageDepth);
+    shadow.geometry = new THREE.ShapeGeometry(roundedRectShape(coverW(), coverH(), 0.09));
+    page.position.z = coverFront + look.pageDepth;
+    cover.position.set(-(look.spine - look.rim) * 0.5, 0, coverFront);
+    shadow.position.set(cover.position.x + PAPER.shadowX, PAPER.shadowY, coverFront - 0.01);
+    pattern.position.z = page.position.z + 0.012;
+    coverFace.color.set(look.cover);
+    coverEdge.color.set(tint(look.cover, 8));
+    pageFace.color.set(look.page);
+    pageEdge.color.set(tint(look.page, 8));
+    for (let i = 0; i < rings.length; i += 2) {
+      const y = rings[i].position.y;
+      rings[i].position.set(ringX(), y, cover.position.z + 0.012);
+      rings[i + 1].position.set(ringX(), y, cover.position.z + 0.016);
+    }
+    placeNotebook();
+  };
 
-  const sparkles = document.createElement('div');
-  sparkles.className = 'puzzle-sparkles';
-  sparkles.setAttribute('aria-hidden', 'true');
-  const sparkleLayout: Array<[string, string, string, boolean]> = [
-    ['12%', '22%', '8px', false],
-    ['86%', '18%', '10px', false],
-    ['8%', '48%', '7px', false],
-    ['92%', '52%', '9px', false],
-    ['18%', '78%', '11px', false],
-    ['78%', '82%', '8px', false],
-    ['10%', '36%', '18px', true],
-    ['84%', '72%', '16px', true],
-  ];
-  for (const [left, top, size, star] of sparkleLayout) {
-    const d = document.createElement('span');
-    d.className = star ? 'puzzle-sparkle is-star' : 'puzzle-sparkle';
-    d.style.left = left;
-    d.style.top = top;
-    d.style.width = size;
-    d.style.height = size;
-    sparkles.appendChild(d);
-  }
-
+  let tuneEl: HTMLDivElement | null = null;
+  const resultEl = document.createElement('div');
+  const replayBtn = document.createElement('button');
+  const nextBtn = document.createElement('button');
   if (opts.uiRoot) {
-    opts.uiRoot.appendChild(sparkles);
-    opts.uiRoot.appendChild(hud);
-    opts.uiRoot.appendChild(preview);
+    opts.uiRoot.appendChild(stepsEl);
+    opts.uiRoot.appendChild(goalEl);
     opts.uiRoot.appendChild(hit);
     opts.uiRoot.appendChild(undoBtn);
     opts.uiRoot.appendChild(hintBtn);
-    opts.uiRoot.appendChild(starsEl);
+    resultEl.className = 'puzzle-result';
+    resultEl.className = 'puzzle-result';
+    const resultCard = document.createElement('div');
+    resultCard.className = 'puzzle-result-card';
+    const resultActions = document.createElement('div');
+    resultActions.className = 'puzzle-result-actions';
+    replayBtn.type = 'button';
+    replayBtn.className = 'puzzle-result-btn';
+    replayBtn.setAttribute('aria-label', '重玩');
+    replayBtn.innerHTML = `<svg ${iconAttrs}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg><span>重玩</span>`;
+    nextBtn.type = 'button';
+    nextBtn.className = 'puzzle-result-btn';
+    nextBtn.setAttribute('aria-label', '下一关');
+    nextBtn.innerHTML = `<svg ${iconAttrs}><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg><span>下一关</span>`;
+    resultActions.append(replayBtn, nextBtn);
+    resultCard.append(starsEl, resultActions);
+    resultEl.append(resultCard);
+    opts.uiRoot.appendChild(resultEl);
+    tuneEl = document.createElement('div');
+    tuneEl.className = 'puzzle-settings';
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'puzzle-settings-btn';
+    toggle.setAttribute('aria-label', '设置');
+    toggle.innerHTML = gearIcon;
+    const panel = document.createElement('div');
+    panel.className = 'puzzle-settings-panel';
+    panel.hidden = true;
+    toggle.addEventListener('pointerdown', (ev) => {
+      ev.stopPropagation();
+      panel.hidden = !panel.hidden;
+    });
+    const addRange = (
+      label: string,
+      read: () => number,
+      write: (n: number) => void,
+      min: number,
+      max: number,
+      step = 0.005,
+      live = true,
+    ) => {
+      const row = document.createElement('label');
+      const name = document.createElement('span');
+      name.textContent = label;
+      const value = document.createElement('span');
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = String(min);
+      input.max = String(max);
+      input.step = String(step);
+      input.value = String(read());
+      value.textContent = read().toFixed(2);
+      input.addEventListener('input', () => {
+        write(Number(input.value));
+        value.textContent = read().toFixed(2);
+        if (live) applyLook();
+      });
+      row.append(name, input, value);
+      panel.append(row);
+    };
+    const addColor = (label: string, key: 'cover' | 'page') => {
+      const row = document.createElement('label');
+      const name = document.createElement('span');
+      name.textContent = label;
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.value = look[key];
+      input.addEventListener('input', () => {
+        look[key] = input.value;
+        applyLook();
+      });
+      row.append(name, input);
+      panel.append(row);
+    };
+    addRange('外皮边', () => look.rim, (n) => { look.rim = n; }, 0.02, 0.22);
+    addRange('线圈边', () => look.spine, (n) => { look.spine = n; }, 0.08, 0.42);
+    addRange('外皮厚', () => look.coverDepth, (n) => { look.coverDepth = n; }, 0.04, 0.24);
+    addRange('内页厚', () => look.pageDepth, (n) => { look.pageDepth = n; }, 0.03, 0.18);
+    addRange('大小', () => NOTEBOOK.scale, (n) => { NOTEBOOK.scale = n; }, 0.5, 1.8);
+    addRange('左右', () => NOTEBOOK.x, (n) => { NOTEBOOK.x = n; }, -1.2, 1.2);
+    addRange('上下', () => NOTEBOOK.y, (n) => { NOTEBOOK.y = n; }, -1.2, 1.2);
+    addRange('角度', () => NOTEBOOK.angle, (n) => { NOTEBOOK.angle = n; }, -180, 180, 1);
+    addRange('痕长', () => TRAIL.maxLen, (n) => { TRAIL.maxLen = n; }, 40, 480, 1, false);
+    addRange('痕寿命', () => TRAIL.life, (n) => { TRAIL.life = n; }, 0.04, 0.6, 0.01, false);
+    addRange('痕间距', () => TRAIL.minDist, (n) => { TRAIL.minDist = n; }, 1, 24, 0.5, false);
+    addRange('痕平滑', () => TRAIL.smooth, (n) => { TRAIL.smooth = n; }, 0, 0.12, 0.005, false);
+    addRange('痕头宽', () => TRAIL.headW, (n) => { TRAIL.headW = n; }, 1, 24, 0.5, false);
+    addRange('痕尾宽', () => TRAIL.tailW, (n) => { TRAIL.tailW = n; }, 0, 16, 0.5, false);
+    addRange('痕尖长', () => TRAIL.tipLen, (n) => { TRAIL.tipLen = n; }, 0, 40, 1, false);
+    addRange('痕细分', () => TRAIL.subdiv, (n) => { TRAIL.subdiv = n; }, 1, 12, 1, false);
+    addColor('外皮色', 'cover');
+    addColor('内页色', 'page');
+    const shadeRows: Array<{ pull: () => void }> = [];
+    const addShadeRange = (
+      label: string,
+      key: 'x' | 'y' | 'size' | 'angle' | 'opacity',
+      min: number,
+      max: number,
+      step = 0.01,
+    ) => {
+      const row = document.createElement('label');
+      const name = document.createElement('span');
+      name.textContent = label;
+      const value = document.createElement('span');
+      const input = document.createElement('input');
+      input.type = 'range';
+      input.min = String(min);
+      input.max = String(max);
+      input.step = String(step);
+      const pull = () => {
+        const n = shade[level][key];
+        input.value = String(n);
+        value.textContent = n.toFixed(2);
+      };
+      pull();
+      input.addEventListener('input', () => {
+        shade[level][key] = Number(input.value);
+        value.textContent = shade[level][key].toFixed(2);
+        applyShade();
+      });
+      row.append(name, input, value);
+      panel.append(row);
+      shadeRows.push({ pull });
+    };
+    const shadeColor = document.createElement('label');
+    const shadeColorName = document.createElement('span');
+    shadeColorName.textContent = '阴影色';
+    const shadeColorInput = document.createElement('input');
+    shadeColorInput.type = 'color';
+    shadeColorInput.value = shade[level].color;
+    shadeColorInput.addEventListener('input', () => {
+      shade[level].color = shadeColorInput.value;
+      applyShade();
+    });
+    shadeColor.append(shadeColorName, shadeColorInput);
+    panel.append(shadeColor);
+    addShadeRange('阴影左右', 'x', -0.6, 0.6);
+    addShadeRange('阴影上下', 'y', -0.6, 0.6);
+    addShadeRange('阴影大小', 'size', 0.4, 1.8);
+    addShadeRange('阴影角度', 'angle', -180, 180, 1);
+    addShadeRange('透明度', 'opacity', 0, 1);
+    syncShadePanel = () => {
+      shadeColorInput.value = shade[level].color;
+      for (const row of shadeRows) row.pull();
+    };
+    tuneEl.append(toggle, panel);
+    opts.uiRoot.appendChild(tuneEl);
   }
 
   let phase: PuzzlePhase = 'show';
+  let goalLive = false;
+  let goalTimer = 0;
+  let lookX = 0;
+  let lookZ = VIEW.cameraZ;
+  let sheetFit = 1;
+  const cutCamZ = () => VIEW.cameraZ * sheetFit;
+  let pan: { from: number; to: number; u: number; then: 'cut' | 'place' } | null = null;
   let t = 0;
   let cuts = 0;
   let stepsLeft = 0;
@@ -383,14 +700,6 @@ export function createCutPuzzle(opts: {
   let stars = 0;
   let buttonLatched = false;
   const frags: THREE.Mesh[] = [];
-  let installs: {
-    mesh: THREE.Mesh;
-    from: THREE.Vector3;
-    to: THREE.Vector3;
-    fromQ: THREE.Quaternion;
-    toQ: THREE.Quaternion;
-    u: number;
-  }[] = [];
 
   const setThumbHit = (on: boolean) => {
     hit.classList.toggle('is-on', on);
@@ -400,19 +709,40 @@ export function createCutPuzzle(opts: {
     level === 'butterfly' ? PUZZLE.stepsButterfly : PUZZLE.stepsTurtle;
 
   const paintSteps = () => {
-    stepsNum.textContent = String(Math.max(0, stepsLeft));
-    stepsEl.classList.toggle('is-on', phase === 'cut');
+    const started = phase === 'cut' || phase === 'carry' || phase === 'place'
+      || phase === 'inspect' || phase === 'score';
+    const n = started ? Math.max(0, stepsLeft) : stepBudget();
+    stepsCount.textContent = String(n);
+    const onCut = phase === 'cut' || (phase === 'pan' && pan?.then === 'cut');
+    const showGoal = goalLive && level === 'butterfly' && onCut;
+    if (showGoal) goalEl.classList.remove('is-away', 'is-fade');
+    else if (!onCut || !goalEl.classList.contains('is-fade')) {
+      goalEl.classList.add('is-away');
+      goalEl.classList.remove('is-fade');
+    }
+    const hudIn = onCut && !showGoal;
+    stepsEl.classList.toggle('is-away', !hudIn);
+    tuneEl?.classList.toggle('is-away', !hudIn);
   };
+  const dismissGoal = () => {
+    if (!goalLive) return;
+    goalLive = false;
+    goalEl.classList.add('is-fade');
+    goalEl.classList.remove('is-away');
+    paintSteps();
+  };
+  paintSteps();
 
   const toolsLive = () => phase === 'cut' || phase === 'place';
 
   const paintTools = () => {
-    const live = toolsLive();
-    undoBtn.classList.toggle('is-on', live);
-    undoBtn.classList.toggle('is-ready', live && history.length > 0);
-    hintBtn.classList.toggle('is-on', live);
-    hintBtn.classList.toggle('is-ready', live && hintOn);
-    hintLine.visible = live && hintOn;
+    const cutting = phase === 'cut';
+    const placing = phase === 'place';
+    undoBtn.classList.toggle('is-on', cutting || placing);
+    undoBtn.classList.toggle('is-ready', (cutting || placing) && history.length > 0);
+    hintBtn.classList.toggle('is-on', cutting);
+    hintBtn.classList.toggle('is-ready', cutting && hintOn);
+    hintLine.visible = cutting && hintOn && !buttonLatched;
   };
 
   const rebuildHint = () => {
@@ -440,66 +770,14 @@ export function createCutPuzzle(opts: {
     history.length = 0;
   };
 
-  const hudPose = () => {
-    const stage = document.getElementById('stage');
-    const halfH = viewHalfH();
-    const halfW = halfH * (DESIGN_WIDTH / DESIGN_HEIGHT);
-    const hexPx = (2 * TURTLE.r * DESIGN_HEIGHT) / (2 * halfH);
-    let x = 0;
-    let y = halfH * 0.72;
-    let targetPx = 62;
-    if (stage) {
-      const sr = stage.getBoundingClientRect();
-      const cr = chipInner.getBoundingClientRect();
-      if (sr.width > 1 && cr.width > 1) {
-        const cx = ((cr.left + cr.width / 2 - sr.left) / sr.width) * DESIGN_WIDTH;
-        const cy = ((cr.top + cr.height / 2 - sr.top) / sr.height) * DESIGN_HEIGHT;
-        x = (cx / DESIGN_WIDTH - 0.5) * 2 * halfW;
-        y = (0.5 - cy / DESIGN_HEIGHT) * 2 * halfH;
-        targetPx = (cr.height / sr.height) * DESIGN_HEIGHT * 0.62;
-      }
-    }
-    return { x, y, s: Math.max(0.12, Math.min(0.45, targetPx / hexPx)) };
-  };
-
-  const placePattern = (mode: 'full' | 'cut') => {
-    hud.classList.add('is-on');
-    preview.classList.remove('is-on');
+  const showNotebook = () => {
     board.visible = true;
-    if (mode === 'cut') {
-      const p = hudPose();
-      board.position.set(p.x, p.y, 0);
-      board.scale.setScalar(p.s);
-    } else if (phase !== 'fly') {
-      board.position.set(0, 0, 0);
-      board.scale.set(1, 1, 1);
-    }
-  };
-
-  let fly: {
-    u: number;
-    from: THREE.Vector3;
-    to: THREE.Vector3;
-    fromS: number;
-    toS: number;
-  } | null = null;
-
-  const startFly = () => {
-    phase = 'fly';
-    t = 0;
-    const p = hudPose();
-    fly = {
-      u: 0,
-      from: board.position.clone(),
-      to: new THREE.Vector3(p.x, p.y, 0),
-      fromS: board.scale.x,
-      toS: p.s,
-    };
+    board.scale.set(1, 1, 1);
+    placeNotebook();
   };
 
   const resetPieces = () => {
     frags.length = 0;
-    installs = [];
     buttonLatched = false;
   };
 
@@ -508,15 +786,15 @@ export function createCutPuzzle(opts: {
     t = 0;
     cuts = 0;
     stepsLeft = stepBudget();
+    hintOn = level === 'butterfly';
+    hit.textContent = '装上';
     clearHistory();
     resetPieces();
     for (const mesh of slots.values()) mesh.visible = true;
-    placePattern('cut');
+    showNotebook();
     paintSteps();
     paintTools();
     setThumbHit(false);
-    opts.spawnBoard();
-    opts.beginEnter();
   };
 
   const scoreOf = (mesh: THREE.Mesh, part: { poly: Poly2[] }) => {
@@ -564,6 +842,7 @@ export function createCutPuzzle(opts: {
     if (phase === 'cut' && stepsLeft <= 0) buttonLatched = true;
     setThumbHit(phase === 'cut' && buttonLatched);
     paintSteps();
+    paintTools();
   };
 
   const forget = (mesh: THREE.Mesh) => {
@@ -573,19 +852,19 @@ export function createCutPuzzle(opts: {
 
   const beginInstall = () => {
     if (phase !== 'cut' || !buttonLatched) return;
-    phase = 'place';
+    phase = 'carry';
     t = 0;
+    hintOn = false;
+    setThumbHit(false);
     paintSteps();
-    placePattern('full');
+    paintTools();
     opts.haltFly();
-    const lift = PAPER.depth * 2;
+    const lift = page.position.z + 0.055;
     for (const mesh of frags) {
       opts.physics.removeMesh(mesh);
       mesh.position.z = lift;
     }
-    hit.textContent = '完成';
-    setThumbHit(true);
-    paintTools();
+    pan = { from: lookX, to: 0, u: 0, then: 'place' };
   };
 
   const rememberCut = (parent: THREE.Mesh, a: THREE.Mesh, b: THREE.Mesh) => {
@@ -666,7 +945,10 @@ export function createCutPuzzle(opts: {
     const cands: { mesh: THREE.Mesh; id: string; iou: number }[] = [];
     for (const mesh of live) {
       mesh.updateMatrixWorld(true);
-      const poly = worldPoly(mesh);
+      const poly = worldPoly(mesh).map((p) => ({
+        x: p.x - board.position.x,
+        y: p.y - board.position.y,
+      }));
       for (const part of parts) {
         cands.push({ mesh, id: part.id, iou: rasterIou(poly, part.poly) });
       }
@@ -688,8 +970,6 @@ export function createCutPuzzle(opts: {
       ious.push(got?.iou ?? 0);
       if (!got) colors.push(0);
       else colors.push(part.dark == null ? 1 : colorHit(got.mesh, part.dark));
-      const slot = slots.get(part.id);
-      if (slot && (got?.iou ?? 0) > 0.2) slot.visible = false;
     }
     const shape = ious.reduce((s, n) => s + n, 0) / Math.max(1, ious.length);
     const color = colors.reduce((s, n) => s + n, 0) / Math.max(1, colors.length);
@@ -698,9 +978,8 @@ export function createCutPuzzle(opts: {
     t = 0;
     fingers.clear();
     spin = null;
-    if (held) held.position.z = PAPER.depth * 2;
+    if (held) restPiece(held);
     held = null;
-    hit.textContent = '装上';
     setThumbHit(false);
     paintTools();
   };
@@ -720,9 +999,41 @@ export function createCutPuzzle(opts: {
     stopTool(ev);
     undo();
   });
+  const leaveScore = (next: boolean) => {
+    resultEl.classList.remove('is-on');
+    starsEl.classList.remove('is-pop');
+    starsEl.dataset.n = '0';
+    t = 0;
+    clearHistory();
+    hintLine.removeFromParent();
+    opts.clearBoard();
+    if (next) level = level === 'butterfly' ? 'turtle' : 'butterfly';
+    mountLevel();
+    rebuildHint();
+    lookX = 0;
+    lookZ = VIEW.cameraZ;
+    pan = null;
+    phase = 'show';
+    showNotebook();
+    paintSteps();
+    paintTools();
+  };
+  replayBtn.addEventListener('pointerdown', (ev) => {
+    stopTool(ev);
+    if (phase !== 'score') return;
+    leaveScore(false);
+  });
+  nextBtn.addEventListener('pointerdown', (ev) => {
+    stopTool(ev);
+    if (phase !== 'score') return;
+    leaveScore(true);
+  });
+  goalEl.ownerDocument.addEventListener('pointerdown', () => {
+    if (goalLive) dismissGoal();
+  });
   hintBtn.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
-    if (!toolsLive()) return;
+    if (phase !== 'cut') return;
     hintOn = !hintOn;
     paintTools();
   });
@@ -730,6 +1041,54 @@ export function createCutPuzzle(opts: {
   const stage = document.getElementById('stage');
   const fingers = new Map<number, { x: number; y: number }>();
   let held: THREE.Mesh | null = null;
+  const restScales = new Map<THREE.Mesh, THREE.Vector3>();
+  const scaleTweens: Array<{
+    mesh: THREE.Mesh;
+    from: THREE.Vector3;
+    to: THREE.Vector3;
+    fromZ: number;
+    toZ: number;
+    u: number;
+    lift: boolean;
+  }> = [];
+  const GROW = 1.05;
+  const SCALE_DUR = 0.18;
+  const startScale = (mesh: THREE.Mesh, to: THREE.Vector3, toZ: number, lift: boolean) => {
+    const prev = scaleTweens.findIndex((item) => item.mesh === mesh);
+    const next = {
+      mesh,
+      from: mesh.scale.clone(),
+      to,
+      fromZ: mesh.position.z,
+      toZ,
+      u: 0,
+      lift,
+    };
+    if (prev >= 0) scaleTweens[prev] = next;
+    else scaleTweens.push(next);
+  };
+  const liftPiece = (mesh: THREE.Mesh) => {
+    if (!restScales.has(mesh)) restScales.set(mesh, mesh.scale.clone());
+    const base = restScales.get(mesh)!;
+    mesh.renderOrder = 8;
+    startScale(mesh, base.clone().multiplyScalar(GROW), page.position.z + 0.085, true);
+  };
+  const restPiece = (mesh: THREE.Mesh) => {
+    const base = restScales.get(mesh) ?? mesh.scale.clone();
+    startScale(mesh, base.clone(), page.position.z + 0.055, false);
+  };
+  const tickScales = (dt: number) => {
+    for (let i = scaleTweens.length - 1; i >= 0; i--) {
+      const item = scaleTweens[i];
+      item.u = Math.min(1, item.u + dt / SCALE_DUR);
+      const k = 1 - (1 - item.u) ** 3;
+      item.mesh.scale.lerpVectors(item.from, item.to, k);
+      item.mesh.position.z = item.fromZ + (item.toZ - item.fromZ) * k;
+      if (item.u < 1) continue;
+      if (!item.lift && item.mesh !== held) item.mesh.renderOrder = 2;
+      scaleTweens.splice(i, 1);
+    }
+  };
   let spin: { ang: number } | null = null;
   let pose0: { mesh: THREE.Mesh; p: THREE.Vector3; q: THREE.Quaternion } | null = null;
 
@@ -802,7 +1161,7 @@ export function createCutPuzzle(opts: {
         p: mesh.position.clone(),
         q: mesh.quaternion.clone(),
       };
-      mesh.position.z = PAPER.depth * 3;
+      liftPiece(mesh);
     }
     const pair = pairAngle();
     if (pair && held) spin = { ang: pair.ang };
@@ -838,7 +1197,7 @@ export function createCutPuzzle(opts: {
         if (moved) history.push({ kind: 'pose', mesh: held, p: pose0.p, q: pose0.q });
         paintTools();
       }
-      if (held) held.position.z = PAPER.depth * 2;
+      if (held) restPiece(held);
       held = null;
       pose0 = null;
       return;
@@ -858,7 +1217,9 @@ export function createCutPuzzle(opts: {
     cuts: () => cuts,
     level: () => level,
     forget,
+    sheetScale: () => PATTERN_FIT * shade[level].size,
     attachSheet: (mesh: THREE.Mesh) => {
+      sheetFit = mesh.scale.x || 1;
       hintLine.position.set(0, 0, 0);
       hintLine.quaternion.identity();
       hintLine.scale.set(1, 1, 1);
@@ -878,65 +1239,89 @@ export function createCutPuzzle(opts: {
       return 'ok';
     },
     requestInstall: () => beginInstall(),
+    scorePlacement: () => finishPlace(),
     step: (dt) => {
+      placeNotebook();
+      tickScales(dt);
       t += dt;
+      if (goalLive && phase === 'cut') {
+        goalTimer += dt;
+        if (goalTimer >= 2) dismissGoal();
+      }
+      const glide = () => {
+        if (!pan) return false;
+        const prev = lookX;
+        const prevU = pan.u;
+        pan.u = Math.min(1, pan.u + dt / Math.max(0.05, PUZZLE.panDur));
+        const u = 1 - (1 - pan.u) ** 3;
+        lookX = pan.from + (pan.to - pan.from) * u;
+        const zCut = cutCamZ();
+        lookZ = pan.then === 'cut'
+          ? VIEW.cameraZ + (zCut - VIEW.cameraZ) * u
+          : zCut + (VIEW.cameraZ - zCut) * u;
+        if (pan.then === 'place') {
+          const dx = lookX - prev + NOTEBOOK.x * (pan.u - prevU);
+          for (const mesh of frags) mesh.position.x += dx;
+        }
+        if (pan.u >= 1) {
+          const then = pan.then;
+          pan = null;
+          if (then === 'cut') beginCut();
+          else {
+            phase = 'place';
+            for (let i = history.length - 1; i >= 0; i--) {
+              const op = history[i];
+              if (op.kind !== 'cut') continue;
+              op.geometry.dispose();
+              history.splice(i, 1);
+            }
+            showNotebook();
+            hit.textContent = '完成';
+            setThumbHit(true);
+            paintSteps();
+            paintTools();
+          }
+        }
+        return true;
+      };
       if (phase === 'show') {
-        placePattern('full');
-        if (t >= PUZZLE.showDur) startFly();
-        return;
-      }
-      if (phase === 'fly' && fly) {
-        fly.u = Math.min(1, fly.u + dt / 0.48);
-        const u = 1 - (1 - fly.u) ** 3;
-        board.position.lerpVectors(fly.from, fly.to, u);
-        const s = fly.fromS + (fly.toS - fly.fromS) * u;
-        board.scale.setScalar(s);
-        if (fly.u >= 1) {
-          fly = null;
-          beginCut();
+        lookX = 0;
+        lookZ = VIEW.cameraZ;
+        showNotebook();
+        paintSteps();
+        paintTools();
+        setThumbHit(false);
+        opts.setLook(lookX, lookZ);
+        if (t >= PUZZLE.showDur) {
+          phase = 'pan';
+          pan = { from: lookX, to: puzzleCutX(), u: 0, then: 'cut' };
+          goalLive = level === 'butterfly';
+          goalTimer = 0;
+          if (goalLive) goalEl.classList.remove('is-fade');
+          paintSteps();
+          opts.spawnBoard();
         }
         return;
       }
-      if (phase === 'install' && installs.length) {
-        let done = true;
-        for (const install of installs) {
-          install.u = Math.min(1, install.u + dt / PUZZLE.installDur);
-          const u = 1 - (1 - install.u) ** 2;
-          install.mesh.position.lerpVectors(install.from, install.to, u);
-          install.mesh.quaternion.slerpQuaternions(install.fromQ, install.toQ, u);
-          if (install.u < 1) done = false;
-        }
-        if (done) {
-          phase = 'inspect';
-          t = 0;
-        }
+      if (phase === 'pan' || phase === 'carry') {
+        glide();
+        opts.setLook(lookX, lookZ);
         return;
       }
+      opts.setLook(lookX, lookZ);
       if (phase === 'inspect') {
         if (t >= PUZZLE.inspectDur) {
           phase = 'score';
           t = 0;
           starsEl.dataset.n = String(stars);
-          starsEl.classList.add('is-on');
+          starsEl.classList.remove('is-pop');
+          void starsEl.offsetWidth;
+          starsEl.classList.add('is-pop');
+          resultEl.classList.add('is-on');
         }
         return;
       }
-      if (phase === 'score') {
-        if (t >= PUZZLE.scoreDur) {
-          starsEl.classList.remove('is-on');
-          starsEl.dataset.n = '0';
-          installs = [];
-          t = 0;
-          clearHistory();
-          hintLine.removeFromParent();
-          opts.clearBoard();
-          level = level === 'butterfly' ? 'turtle' : 'butterfly';
-          mountLevel();
-          rebuildHint();
-          phase = 'show';
-          placePattern('full');
-        }
-      }
+      if (phase === 'score') return;
     },
     dispose: () => {
       hit.remove();
@@ -944,22 +1329,35 @@ export function createCutPuzzle(opts: {
       hintBtn.remove();
       hintLine.geometry.dispose();
       hintMat.dispose();
-      hud.remove();
+      stepsEl.remove();
       stage?.removeEventListener('pointerdown', onPlaceDown);
       stage?.removeEventListener('pointermove', onPlaceMove);
       stage?.removeEventListener('pointerup', onPlaceUp);
       stage?.removeEventListener('pointercancel', onPlaceUp);
-      preview.remove();
-      sparkles.remove();
-      starsEl.remove();
+      resultEl.remove();
+      goalEl.remove();
+      tuneEl?.remove();
       opts.scene.remove(board);
       for (const mesh of slots.values()) mesh.geometry.dispose();
       for (const mesh of extras) mesh.geometry.dispose();
-      card.geometry.dispose();
-      (card.material as THREE.Material).dispose();
+      cover.geometry.dispose();
+      page.geometry.dispose();
+      ringGeom.dispose();
+      holeGeom.dispose();
+      coverFace.dispose();
+      coverEdge.dispose();
+      pageFace.dispose();
+      pageEdge.dispose();
+      ringFace.dispose();
+      shadow.geometry.dispose();
+      shadowMat.dispose();
       eyeMat.dispose();
+      butterflyEyeMat.dispose();
+      butterflyEyeShadowMat.dispose();
       shadowFace.dispose();
       shadowEdge.dispose();
+      butterflyShadow.dispose();
+      paperShade.dispose();
       headFace.dispose();
       headEdge.dispose();
     },
