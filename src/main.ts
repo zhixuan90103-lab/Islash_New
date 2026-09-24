@@ -23,6 +23,7 @@ import {
 } from './adapt/devicePreview';
 import { applyNativeClass, applySafeAreaCssVars } from './adapt/safeArea';
 import { createRenderer, resizeToDesign } from './create-renderer';
+import { mountLevelEditor } from './editor/levelEditor';
 
 const shell = document.getElementById('shell')!;
 const viewportEl = document.getElementById('viewport')!;
@@ -35,6 +36,16 @@ function setStatus(text: string): void {
 
 async function boot(): Promise<void> {
   applyNativeClass();
+  if (new URLSearchParams(location.search).has('edit')) {
+    applySafeAreaCssVars(Capacitor.isNativePlatform());
+    const preview = mountDevicePreview(shell, viewportEl, () => {
+      const size = preview.getViewSize();
+      applyStageTransform(stage, computeStageLayout(size.width, size.height));
+    });
+    const ui = document.getElementById('ui-root');
+    if (ui) mountLevelEditor(ui);
+    return;
+  }
 
   const platform = Capacitor.getPlatform();
   const native = Capacitor.isNativePlatform();

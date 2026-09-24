@@ -148,6 +148,7 @@ export const PUZZLE = {
   /** 贯穿切开才扣一步。没切开不扣。 */
   stepsButterfly: 1,
   stepsTurtle: 2,
+  stepsFish: 6,
   maxCuts: 3,
   installDur: 0.55,
   inspectDur: 1.15,

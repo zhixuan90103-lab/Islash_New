@@ -8,8 +8,8 @@
 
 **TypeScript + Three.js WebGPU + Vite + Capacitor iOS**。  
 竖屏 **390×844** contain letterbox。画面规范见 [docs/UI.md](docs/UI.md)。`base: './'`。  
-当前玩法：用关卡给的一张料，把指定零件裁出来装进完成图案（准了爽，不准也好看；都能过关）。规范：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。第一关蝴蝶 1 步，第二关乌龟 2 步。  
-滑动=刀。贯穿切开才扣一步。切开的都留下；还有步就能再切。切的时候左上角是 Moves 和剩余步数。先看左侧笔记本剪影 2 秒，镜头自动向右进入裁剪区。轮廓齐了或步数用完，弹出「装上」，点了才停刀，切好的块跟着镜头回到笔记本再拼，两指可旋转那一块。拼的时候点「完成」才计分出星。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；画面 [docs/UI.md](docs/UI.md)。
+当前玩法：用关卡给的一张料，把指定零件裁出来装进完成图案（准了爽，不准也好看；都能过关）。规范：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)。第一关蝴蝶 1 步，第二关乌龟 2 步，第三关鱼 6 步，之后回到蝴蝶。  
+滑动=刀。贯穿切开才扣一步。切开的都留下；还有步就能再切。切的时候左上角是 Moves 和剩余步数。先看左侧笔记本剪影 2 秒，镜头自动向右进入裁剪区。轮廓齐了或步数用完，弹出「装上」，点了才停刀，切好的块跟着镜头回到笔记本再拼。选中时记下这块纸的中心，一指带着中心走，两指绕这个中心转。拼的时候点「完成」才计分出星。刀法细则 [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；玩法 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；画面 [docs/UI.md](docs/UI.md)。
 
 ## 入口地图
 
@@ -36,6 +36,8 @@
 | 划切调研 | `docs/SLASH-RESEARCH.md` |
 | 连续切技术 | `docs/SLASH-TECH.md` |
 | 切割拼图（当前玩法） | [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md) · `cutPuzzle.ts` · `PUZZLE` |
+| 第三关鱼 | `src/game/fishLevel.ts`（菱形料，笔记本上七块粉纸加外影） |
+| 关卡编辑器 | `?edit=1` · `src/editor/levelEditor.ts`（参数在画布外，可收起） |
 | 画面与界面 | [docs/UI.md](docs/UI.md) |
 | 圆柱 3D 切（管线） | [docs/CYLINDER-CUT.md](docs/CYLINDER-CUT.md)（拼图关未用图库圆柱） |
 
@@ -73,20 +75,20 @@ npm run ios:bootstrap # 首次 / 修 Swift 插件
 npm run ios           # build + sync + 开 Xcode
 ```
 
-查询参数：`?preview=0|1` · `?debugFit=1`  
+查询参数：`?preview=0|1` · `?debugFit=1` · `?edit=1`（关卡编辑器，不启动 WebGPU）  
 调试安全区：`document.body.classList.add('debug-safe-area')`
 
 ## 业务怎么加
 
 - 玩法循环：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；刀：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md) + [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；打击感：[docs/SLASH-FEEL.md](docs/SLASH-FEEL.md)（入板锁 A、出板清、板心不锁；帮助指出 B；乱划 1.5 倍钉死到出板；余势拦弧线，短距离尖角才第二刀；有效刀钉到抬起）  
 - 保留：adapt / create-renderer / haptics / plugins / `base`  
-- 触控：整屏走刀，只对料判切；可同时按下最多 3 指，**有效刀只有一把**。指定零件轮廓齐了或步数用完，出「装上」，点了才停刀，块跟着镜头回到笔记本，玩家自己摆。点「完成」才计分出星。  
+- 触控：整屏走刀，只对料判切；可同时按下最多 3 指，**有效刀只有一把**。指定零件轮廓齐了或步数用完，出「装上」，点了才停刀，块跟着镜头回到笔记本。拼放：第一指选中并记下轮廓中心，一指拖，两指绕该中心转同时中心跟两指中点走。点「完成」才计分出星。细则 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)「拼放手势」。  
 - UI：只挂 `#ui-root`；进度条不显示。齿轮设置在切的时候出现。画面规范 [docs/UI.md](docs/UI.md)。  
 - 音效：`src/audio/gameAudio.ts` + `docs/AUDIO.md`；禁止热路径 `new Audio()` / 每发一次桥  
 
 ## 刻意不做
 
-- 不要默默接回图库轮换 / 完成切割换板。关卡顺序是蝴蝶，然后乌龟  
+- 不要默默接回图库轮换 / 完成切割换板。关卡顺序是蝴蝶，然后乌龟，然后鱼  
 - 连击 / 其它手势族  
 - 伪造「重侧下垂」力矩  
 - 整板锥台、3D CSG 切倒角网格  

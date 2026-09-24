@@ -3,6 +3,7 @@ import { applyBladeImpulse, pieceVolume } from './bladeForce';
 import { boardCutProgress, CUT, FINALE, FLASH, FX, PAPER, puzzleCutX, SHAKE, WOOD } from './design';
 import { createCutPuzzle } from './cutPuzzle';
 import { BUTTERFLY } from './butterflyLevel';
+import { FISH, fishSheet } from './fishLevel';
 import { localIsDark, TURTLE } from './turtleLevel';
 import { mountCutProgressHud } from './cutProgressHud';
 import { createScreenShake, cutHit } from './screenShake';
@@ -79,7 +80,8 @@ export async function mountSlashWorld(
       const atX = puzzleCutX();
       const fit = puzzle.sheetScale();
       if (puzzle.level() === 'butterfly') wood.spawnSolidDisc(BUTTERFLY.pink, BUTTERFLY.edge, atX, fit);
-      else wood.spawnDisc(atX, fit);
+      else if (puzzle.level() === 'turtle') wood.spawnDisc(atX, fit);
+      else wood.spawnPolySheet(fishSheet(), FISH.paper, atX, fit);
       const sheet = wood.cuttables[0];
       if (sheet) puzzle.attachSheet(sheet);
     },
@@ -504,6 +506,7 @@ export async function mountSlashWorld(
     }
     overlay.setSheetInk((p) => {
       if (puzzle.level() === 'butterfly') return tone(BUTTERFLY.pink);
+      if (puzzle.level() === 'fish') return tone(FISH.paper);
       const local = designToLocalXY(p, camera, mesh);
       const hex = local && localIsDark(local.y) ? TURTLE.dark : TURTLE.light;
       return tone(hex);

@@ -398,6 +398,126 @@ body.native-app #shell {
   color: #6b7280;
 }
 
+.lv-edit {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.lv-edit-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+.lv-edit-dock {
+  position: fixed;
+  z-index: 30;
+  left: 16px;
+  top: 16px;
+  width: 300px;
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.lv-edit-dock.is-hidden .lv-edit-panel,
+.lv-edit-dock.is-hidden .lv-edit-bar {
+  display: none;
+}
+
+.lv-edit-toggle {
+  align-self: flex-start;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: #fff;
+  color: #6b7280;
+  font: 700 13px/1 system-ui, sans-serif;
+  box-shadow: 0 3px 0 rgba(107, 114, 128, 0.22);
+}
+
+.lv-edit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lv-edit-bar button {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #fff;
+  color: #6b7280;
+  font: 700 13px/1 system-ui, sans-serif;
+  box-shadow: 0 3px 0 rgba(107, 114, 128, 0.22);
+}
+
+.lv-edit-bar button.is-on {
+  background: #6b7280;
+  color: #fff;
+}
+
+.lv-edit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #6b7280;
+  font: 700 12px/1 system-ui, sans-serif;
+}
+
+.lv-edit-panel label {
+  display: grid;
+  grid-template-columns: 56px 1fr 42px;
+  align-items: center;
+  gap: 6px;
+}
+
+.lv-edit-hex-row {
+  grid-template-columns: 56px 1fr;
+}
+
+.lv-edit-hex {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  background: #f3f4f6;
+  color: #6b7280;
+  font: 700 12px/1 ui-monospace, monospace;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.lv-edit-outer {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: #6b7280;
+  color: #fff;
+  font: 700 12px/1 system-ui, sans-serif;
+}
+
+.lv-edit-colors {
+  display: flex;
+  gap: 6px;
+}
+
+.lv-edit-colors button {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+}
+
 .puzzle-moves-count {
   margin-top: 6px;
   font: 800 34px/1 system-ui, sans-serif;

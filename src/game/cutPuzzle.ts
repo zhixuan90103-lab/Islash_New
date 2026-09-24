@@ -13,6 +13,7 @@ import {
   type TurtlePart,
 } from './turtleLevel';
 import { BUTTERFLY, butterflyBody, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
+import { fishParts, type FishPart } from './fishLevel';
 import type { SlashPhysics } from './slashPhysics';
 
 export type PuzzlePhase = 'show' | 'pan' | 'cut' | 'carry' | 'place' | 'inspect' | 'score';
@@ -23,7 +24,7 @@ export type CutPuzzle = {
   phase: () => PuzzlePhase;
   canCut: () => boolean;
   cuts: () => number;
-  level: () => 'turtle' | 'butterfly';
+  level: () => 'turtle' | 'butterfly' | 'fish';
   /** 记下这一刀的两块，并扣一步。步数用完后不再能切。 */
   onCut: (a: THREE.Mesh, b: THREE.Mesh) => 'ok' | 'submit';
   forget: (mesh: THREE.Mesh) => void;
@@ -240,6 +241,9 @@ export function createCutPuzzle(opts: {
   faceMat: THREE.MeshLambertMaterial;
   edgeMat: THREE.MeshLambertMaterial;
 }): CutPuzzle {
+  const fishFace = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const fishEdge = new THREE.MeshLambertMaterial({ color: 0xffffff });
+  const fishOuterMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const shadowFace = new THREE.MeshLambertMaterial({ color: TURTLE.shadow });
   const shadowEdge = new THREE.MeshLambertMaterial({ color: 0xaeb6b0 });
   const butterflyShadow = new THREE.MeshBasicMaterial({
@@ -294,10 +298,11 @@ export function createCutPuzzle(opts: {
     opacity: PAPER.shadowOpacity,
     depthWrite: false,
   });
-  let level: 'turtle' | 'butterfly' = 'butterfly';
+  let level: 'turtle' | 'butterfly' | 'fish' = 'butterfly';
   const shade = {
     butterfly: { color: '#c98496', x: 0.1, y: 0, size: 1, angle: 5, opacity: 0.95 },
     turtle: { color: '#5f7828', x: 0, y: 0, size: 1, angle: 15, opacity: 1 },
+    fish: { color: '#8a88b0', x: 0, y: 0, size: 1, angle: 0, opacity: 1 },
   };
   let syncShadePanel = () => {};
   let turtleOverall = 0.9;
@@ -387,7 +392,21 @@ export function createCutPuzzle(opts: {
   const applyShade = () => {
     const s = shade[level];
     const hex = Number.parseInt(s.color.slice(1), 16);
-    const mats = level === 'butterfly' ? [butterflyShadow] : [shadowFace, shadowEdge];
+    if (level === 'fish') {
+      paintPaper(fishFace, 0xfbcad6);
+      paintPaper(fishEdge, 0xefb8c6);
+      paintPaper(fishOuterMat, 0x8a88b0);
+      fishFace.opacity = 1;
+      fishEdge.opacity = 1;
+      fishOuterMat.opacity = 1;
+      fishFace.transparent = false;
+      fishEdge.transparent = false;
+      fishOuterMat.transparent = false;
+      fishFace.depthWrite = true;
+      fishEdge.depthWrite = true;
+      fishOuterMat.depthWrite = true;
+    }
+    const mats = level === 'butterfly' ? [butterflyShadow] : level === 'fish' ? [] : [shadowFace, shadowEdge];
     for (const mat of mats) {
       paintPaper(mat, hex);
       mat.opacity = s.opacity;
@@ -402,7 +421,7 @@ export function createCutPuzzle(opts: {
     shadePivot.scale.setScalar(s.size);
     syncShadePanel();
   };
-  let parts: Array<TurtlePart | ButterflyPart> = [];
+  let parts: Array<TurtlePart | ButterflyPart | FishPart> = [];
   const slots = new Map<string, THREE.Mesh>();
   const extras: THREE.Mesh[] = [];
   const shadowMat = new THREE.MeshBasicMaterial({
@@ -505,6 +524,10 @@ export function createCutPuzzle(opts: {
       look.cover = '#93af48';
       look.page = '#fff9e4';
       opts.setGrid?.(0xf2c8cb, 0xe7bdc0);
+    } else if (level === 'fish') {
+      look.cover = '#908db8';
+      look.page = '#f4f1fb';
+      opts.setGrid?.(0xe3e1f3, 0xd4d2e8);
     } else {
       look.cover = '#db96a8';
       look.page = '#fef2df';
@@ -517,12 +540,12 @@ export function createCutPuzzle(opts: {
     syncBookColors();
     pattern.position.x = 0;
     pattern.position.z = page.position.z + 0.012;
-    parts = level === 'turtle' ? turtleParts() : butterflyParts();
+    parts = level === 'turtle' ? turtleParts() : level === 'fish' ? fishParts() : butterflyParts();
     for (const part of parts) {
       const mesh = makePartMesh(
         part.poly,
-        level === 'butterfly' ? butterflyShadow : shadowFace,
-        level === 'butterfly' ? butterflyShadow : shadowEdge,
+        level === 'butterfly' ? butterflyShadow : level === 'fish' ? fishFace : shadowFace,
+        level === 'butterfly' ? butterflyShadow : level === 'fish' ? fishEdge : shadowEdge,
       );
       mesh.name = part.id;
       slots.set(part.id, mesh);
@@ -536,6 +559,23 @@ export function createCutPuzzle(opts: {
         drop.userData.outerDrop = true;
         drop.renderOrder = 1;
         mesh.add(drop);
+      }
+      if (level === 'fish' && 'outer' in part) {
+        let cx = 0;
+        let cy = 0;
+        for (const p of part.poly) {
+          cx += p.x;
+          cy += p.y;
+        }
+        cx /= part.poly.length;
+        cy /= part.poly.length;
+        const size = part.outer;
+        const outerMesh = new THREE.Mesh(mesh.geometry.clone(), fishOuterMat);
+        outerMesh.scale.setScalar(size);
+        outerMesh.position.set(cx * (1 - size), cy * (1 - size), -0.002);
+        outerMesh.renderOrder = 1;
+        extras.push(outerMesh);
+        shadePivot.add(outerMesh);
       }
       if (level === 'butterfly' && (part.id === 'wingL' || part.id === 'wingR')) {
         const drop = new THREE.Mesh(mesh.geometry, butterflyOuterDropMat);
@@ -587,7 +627,7 @@ export function createCutPuzzle(opts: {
       eye.renderOrder = 5;
       extras.push(eye);
       shadePivot.add(eye);
-    } else {
+    } else if (level === 'butterfly') {
       for (const poly of butterflyBody()) {
         const half = makePartMesh(poly, paperShade, paperShade);
         half.position.z = PAPER.depth + 0.01;
@@ -992,7 +1032,9 @@ export function createCutPuzzle(opts: {
   };
 
   const stepBudget = () =>
-    level === 'butterfly' ? PUZZLE.stepsButterfly : PUZZLE.stepsTurtle;
+    level === 'butterfly' ? PUZZLE.stepsButterfly
+      : level === 'turtle' ? PUZZLE.stepsTurtle
+      : PUZZLE.stepsFish;
 
   const paintSteps = () => {
     const started = phase === 'cut' || phase === 'carry' || phase === 'place'
@@ -1037,12 +1079,14 @@ export function createCutPuzzle(opts: {
     const pts =
       level === 'butterfly'
         ? [new THREE.Vector3(0, -r, z), new THREE.Vector3(0, r, z)]
-        : [
-            new THREE.Vector3(-r, 0, z),
-            new THREE.Vector3(r, 0, z),
-            new THREE.Vector3(0, -r, z),
-            new THREE.Vector3(0, 0, z),
-          ];
+        : level === 'turtle'
+          ? [
+              new THREE.Vector3(-r, 0, z),
+              new THREE.Vector3(r, 0, z),
+              new THREE.Vector3(0, -r, z),
+              new THREE.Vector3(0, 0, z),
+            ]
+          : [new THREE.Vector3(0, 0, z), new THREE.Vector3(0, 0, z)];
     hintLine.geometry.dispose();
     hintLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
     hintLine.computeLineDistances();
@@ -1315,7 +1359,7 @@ export function createCutPuzzle(opts: {
     clearHistory();
     hintLine.removeFromParent();
     opts.clearBoard();
-    if (next) level = level === 'butterfly' ? 'turtle' : 'butterfly';
+    if (next) level = level === 'butterfly' ? 'turtle' : level === 'turtle' ? 'fish' : 'butterfly';
     mountLevel();
     rebuildHint();
     lookX = 0;
@@ -1549,6 +1593,10 @@ export function createCutPuzzle(opts: {
 
   const onPlaceDown = (e: PointerEvent) => {
     if (phase !== 'place' || e.button !== 0) return;
+    const target = e.target;
+    if (target instanceof Element && target.closest(
+      '.puzzle-submit-hit, .puzzle-tool, .puzzle-preview, .puzzle-settings, .puzzle-result',
+    )) return;
     e.stopImmediatePropagation();
     const at = worldOnPlane(e);
     if (!at) return;
@@ -1781,6 +1829,12 @@ export function createCutPuzzle(opts: {
       butterflyEyeMat.dispose();
       butterflyShadow.map?.dispose();
       butterflyShadow.dispose();
+      fishFace.map?.dispose();
+      fishFace.dispose();
+      fishEdge.map?.dispose();
+      fishEdge.dispose();
+      fishOuterMat.map?.dispose();
+      fishOuterMat.dispose();
       shadowFace.map?.dispose();
       shadowFace.dispose();
       shadowEdge.map?.dispose();

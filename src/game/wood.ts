@@ -209,6 +209,7 @@ export type WoodSet = {
   spawnSquare: () => void;
   spawnDisc: (atX?: number, fit?: number) => void;
   spawnSolidDisc: (color: number, edge: number, atX?: number, fit?: number) => void;
+  spawnPolySheet: (profile: Poly2[], color: number, atX?: number, fit?: number) => void;
   clear: () => void;
   forget: (mesh: THREE.Mesh) => void;
   track: (mesh: THREE.Mesh) => void;
@@ -400,6 +401,31 @@ export function createWoodSet(
     spawned.push(mesh);
   };
 
+  const spawnPolySheet = (profile: Poly2[], color: number, atX = 0, fit = 1) => {
+    clear();
+    const depth = PAPER.depth;
+    const geom =
+      createWoodSolid(profile, depth, PAPER.edgeInset) ??
+      createWoodGeometry(TURTLE.r * 2, TURTLE.r * 2, depth);
+    const face = new THREE.MeshLambertMaterial({
+      color: 0xffffff,
+      map: paperFaceTexture(color),
+    });
+    const mesh = new THREE.Mesh(geom, [face, face]);
+    mesh.userData.profile =
+      (geom.userData.profile as Poly2[] | undefined) ?? profile;
+    mesh.userData.depth = depth;
+    mesh.userData.puzzleRole = 'stock';
+    mesh.scale.setScalar(fit);
+    mesh.position.set(atX, WOOD.lift, 0);
+    mesh.userData.originVolume = pieceVolume(mesh);
+    scene.add(mesh);
+    prepareCuttable(mesh);
+    physics.addMesh(mesh, 'staticConvex');
+    cuttables.push(mesh);
+    spawned.push(mesh);
+  };
+
   return {
     cuttables,
     faceMat: matFace,
@@ -408,6 +434,7 @@ export function createWoodSet(
     spawnSquare,
     spawnDisc,
     spawnSolidDisc,
+    spawnPolySheet,
     clear,
     forget,
     track,
