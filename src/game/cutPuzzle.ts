@@ -1263,9 +1263,7 @@ export function createCutPuzzle(opts: {
     phase = 'inspect';
     t = 0;
     fingers.clear();
-    spin = null;
-    primaryId = null;
-    localCenter = null;
+    endPlace();
     if (held) restPiece(held);
     held = null;
     setThumbHit(false);
@@ -1410,23 +1408,45 @@ export function createCutPuzzle(opts: {
       const item = scaleTweens[i];
       item.u = Math.min(1, item.u + dt / SCALE_DUR);
       const k = 1 - (1 - item.u) ** 3;
+      const keep = item.mesh === held && center ? worldCenter() : null;
       item.mesh.scale.lerpVectors(item.from, item.to, k);
       item.mesh.position.z = item.fromZ + (item.toZ - item.fromZ) * k;
+      if (keep && held) {
+        const now = worldCenter();
+        held.position.x += keep.x - now.x;
+        held.position.y += keep.y - now.y;
+      }
       if (item.u < 1) continue;
       if (!item.lift && item.mesh !== held) item.mesh.renderOrder = 2;
       scaleTweens.splice(i, 1);
     }
   };
+  type V2 = { x: number; y: number };
+  type PairTrack = {
+    ax: number;
+    ay: number;
+    bx: number;
+    by: number;
+    ang: number;
+    mx: number;
+    my: number;
+  };
+  const PLACE_SMOOTH = 0.45;
   let primaryId: number | null = null;
-  let localCenter: { x: number; y: number } | null = null;
-  let spin: { ax: number; ay: number; bx: number; by: number; ang: number; mx: number; my: number } | null = null;
+  let center: V2 | null = null;
+  let pair: PairTrack | null = null;
   let pose0: { mesh: THREE.Mesh; p: THREE.Vector3; q: THREE.Quaternion } | null = null;
-  const SPIN_SMOOTH = 0.45;
 
-  const pairPoints = () => {
+  const endPlace = () => {
+    primaryId = null;
+    center = null;
+    pair = null;
+  };
+
+  const twoFingers = (): { a: V2; b: V2 } | null => {
     if (primaryId == null || fingers.size < 2) return null;
     const a = fingers.get(primaryId);
-    let b: { x: number; y: number } | null = null;
+    let b: V2 | null = null;
     for (const [id, p] of fingers) {
       if (id === primaryId) continue;
       b = p;
@@ -1436,36 +1456,58 @@ export function createCutPuzzle(opts: {
     return { a, b };
   };
 
-  const smoothSpin = (a: { x: number; y: number }, b: { x: number; y: number }) => {
-    if (!spin) return null;
-    const k = SPIN_SMOOTH;
-    spin.ax += (a.x - spin.ax) * k;
-    spin.ay += (a.y - spin.ay) * k;
-    spin.bx += (b.x - spin.bx) * k;
-    spin.by += (b.y - spin.by) * k;
-    return {
-      ang: Math.atan2(spin.by - spin.ay, spin.bx - spin.ax),
-      mx: (spin.ax + spin.bx) * 0.5,
-      my: (spin.ay + spin.by) * 0.5,
-    };
+  const seedPair = (a: V2, b: V2): PairTrack => ({
+    ax: a.x,
+    ay: a.y,
+    bx: b.x,
+    by: b.y,
+    ang: Math.atan2(b.y - a.y, b.x - a.x),
+    mx: (a.x + b.x) * 0.5,
+    my: (a.y + b.y) * 0.5,
+  });
+
+  const armPair = () => {
+    const pts = twoFingers();
+    pair = pts ? seedPair(pts.a, pts.b) : null;
+  };
+
+  const stepPair = (a: V2, b: V2) => {
+    if (!pair) return null;
+    const k = PLACE_SMOOTH;
+    pair.ax += (a.x - pair.ax) * k;
+    pair.ay += (a.y - pair.ay) * k;
+    pair.bx += (b.x - pair.bx) * k;
+    pair.by += (b.y - pair.by) * k;
+    const ang = Math.atan2(pair.by - pair.ay, pair.bx - pair.ax);
+    const mx = (pair.ax + pair.bx) * 0.5;
+    const my = (pair.ay + pair.by) * 0.5;
+    let dA = ang - pair.ang;
+    if (dA > Math.PI) dA -= Math.PI * 2;
+    if (dA < -Math.PI) dA += Math.PI * 2;
+    const dX = mx - pair.mx;
+    const dY = my - pair.my;
+    pair.ang = ang;
+    pair.mx = mx;
+    pair.my = my;
+    return { dA, dX, dY };
   };
 
   const lockCenter = (mesh: THREE.Mesh) => {
     const raw = (mesh.userData.profile as Poly2[] | undefined) ?? [];
-    localCenter = raw.length >= 3 ? areaCentroid(raw) : { x: 0, y: 0 };
+    center = raw.length >= 3 ? areaCentroid(raw) : { x: 0, y: 0 };
   };
 
   const worldCenter = () => {
-    if (!held || !localCenter) return { x: held?.position.x ?? 0, y: held?.position.y ?? 0 };
+    if (!held || !center) return { x: held?.position.x ?? 0, y: held?.position.y ?? 0 };
     held.updateMatrixWorld(true);
     const e = held.matrixWorld.elements;
     return {
-      x: e[0] * localCenter.x + e[4] * localCenter.y + e[12],
-      y: e[1] * localCenter.x + e[5] * localCenter.y + e[13],
+      x: e[0] * center.x + e[4] * center.y + e[12],
+      y: e[1] * center.x + e[5] * center.y + e[13],
     };
   };
 
-  const spinHeld = (dA: number, dX: number, dY: number) => {
+  const turnAboutCenter = (dA: number, dX: number, dY: number) => {
     if (!held) return;
     const c = worldCenter();
     const ox = held.position.x - c.x;
@@ -1507,6 +1549,7 @@ export function createCutPuzzle(opts: {
 
   const onPlaceDown = (e: PointerEvent) => {
     if (phase !== 'place' || e.button !== 0) return;
+    e.stopImmediatePropagation();
     const at = worldOnPlane(e);
     if (!at) return;
     fingers.set(e.pointerId, at);
@@ -1527,18 +1570,7 @@ export function createCutPuzzle(opts: {
       };
       liftPiece(mesh);
     }
-    const pair = pairPoints();
-    if (pair && held) {
-      spin = {
-        ax: pair.a.x,
-        ay: pair.a.y,
-        bx: pair.b.x,
-        by: pair.b.y,
-        ang: Math.atan2(pair.b.y - pair.a.y, pair.b.x - pair.a.x),
-        mx: (pair.a.x + pair.b.x) * 0.5,
-        my: (pair.a.y + pair.b.y) * 0.5,
-      };
-    }
+    armPair();
   };
 
   const onPlaceMove = (e: PointerEvent) => {
@@ -1547,19 +1579,10 @@ export function createCutPuzzle(opts: {
     const at = worldOnPlane(e);
     if (!at) return;
     fingers.set(e.pointerId, at);
-    const pair = pairPoints();
-    if (pair && spin && fingers.size >= 2) {
-      const next = smoothSpin(pair.a, pair.b);
-      if (!next) return;
-      let dA = next.ang - spin.ang;
-      if (dA > Math.PI) dA -= Math.PI * 2;
-      if (dA < -Math.PI) dA += Math.PI * 2;
-      const dX = next.mx - spin.mx;
-      const dY = next.my - spin.my;
-      spin.ang = next.ang;
-      spin.mx = next.mx;
-      spin.my = next.my;
-      spinHeld(dA, dX, dY);
+    const pts = twoFingers();
+    if (pts && pair) {
+      const step = stepPair(pts.a, pts.b);
+      if (step) turnAboutCenter(step.dA, step.dX, step.dY);
       return;
     }
     held.position.x += at.x - prev.x;
@@ -1568,7 +1591,7 @@ export function createCutPuzzle(opts: {
 
   const onPlaceUp = (e: PointerEvent) => {
     fingers.delete(e.pointerId);
-    spin = null;
+    pair = null;
     if (fingers.size === 0) {
       if (held && pose0 && pose0.mesh === held) {
         const moved =
@@ -1580,26 +1603,13 @@ export function createCutPuzzle(opts: {
       if (held) restPiece(held);
       held = null;
       pose0 = null;
-      primaryId = null;
-      localCenter = null;
+      endPlace();
       return;
     }
     if (e.pointerId === primaryId) {
-      const next = fingers.keys().next().value;
-      primaryId = next ?? null;
+      primaryId = fingers.keys().next().value ?? null;
     }
-    const pair = pairPoints();
-    if (pair && held) {
-      spin = {
-        ax: pair.a.x,
-        ay: pair.a.y,
-        bx: pair.b.x,
-        by: pair.b.y,
-        ang: Math.atan2(pair.b.y - pair.a.y, pair.b.x - pair.a.x),
-        mx: (pair.a.x + pair.b.x) * 0.5,
-        my: (pair.a.y + pair.b.y) * 0.5,
-      };
-    }
+    armPair();
   };
 
   const onPlaceMoveWindow = (e: PointerEvent) => {
@@ -1611,7 +1621,7 @@ export function createCutPuzzle(opts: {
     onPlaceUp(e);
   };
 
-  stage?.addEventListener('pointerdown', onPlaceDown);
+  stage?.addEventListener('pointerdown', onPlaceDown, true);
   stage?.addEventListener('pointermove', onPlaceMove);
   stage?.addEventListener('pointerup', onPlaceUp);
   stage?.addEventListener('pointercancel', onPlaceUp);
@@ -1741,7 +1751,7 @@ export function createCutPuzzle(opts: {
       hintLine.geometry.dispose();
       hintMat.dispose();
       stepsEl.remove();
-      stage?.removeEventListener('pointerdown', onPlaceDown);
+      stage?.removeEventListener('pointerdown', onPlaceDown, true);
       stage?.removeEventListener('pointermove', onPlaceMove);
       stage?.removeEventListener('pointerup', onPlaceUp);
       stage?.removeEventListener('pointercancel', onPlaceUp);
