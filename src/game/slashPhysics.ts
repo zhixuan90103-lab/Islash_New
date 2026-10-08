@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import RAPIER from '@dimforge/rapier3d-compat';
-import { PHYS, VIEW } from './design';
+import { PAPER, PHYS, VIEW } from './design';
 
 export type PhysBody = {
   mesh: THREE.Mesh;
@@ -88,10 +88,10 @@ function centerOnVolumeCom(mesh: THREE.Mesh): void {
   mesh.geometry.computeBoundingSphere();
 }
 
-/** 碰撞用稍厚的棱柱，避免薄片凸包把纸掀起来。画面仍是薄纸。 */
+/** 碰撞体和画面一样薄。厚了会沿切缝相撞，而平面被锁住时只能把纸顶起来，叠成多层。 */
 function paperHull(mesh: THREE.Mesh): Float32Array {
   const raw = (mesh.userData.profile as { x: number; y: number }[] | undefined) ?? [];
-  const hz = 0.05;
+  const hz = PAPER.depth * 0.5;
   const arr = new Float32Array(Math.max(1, raw.length) * 6);
   raw.forEach((p, i) => {
     arr[i * 3] = p.x;
@@ -141,7 +141,7 @@ export async function createSlashPhysics(): Promise<SlashPhysics> {
           .setGravityScale(kind === 'paper' ? 0 : 1)
       : RAPIER.RigidBodyDesc.fixed();
     if (kind === 'paper') {
-      desc.restrictTranslations(true, true, false);
+      desc.restrictTranslations(true, true, true);
       desc.lockRotations();
     }
     desc.setTranslation(t.x, t.y, t.z);
