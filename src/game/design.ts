@@ -119,16 +119,6 @@ export function backdropCellW(): number {
   return viewW / BACKDROP_GRID.cols;
 }
 
-/**
- * 鱼的裁纸镜头。菱形左右尖加落影约占画面宽度的 68%，两边都留在屏幕内。
- */
-export function fishCutCameraZ(sheetScale: number, reach: number): number {
-  const fitted = VIEW.cameraZ * sheetScale;
-  const halfWPerZ = Math.tan((VIEW.fov * Math.PI) / 360) * (DESIGN_WIDTH / DESIGN_HEIGHT);
-  const wantHalfW = (reach * sheetScale + Math.abs(PAPER.shadowX)) / 0.68;
-  return Math.max(fitted, wantHalfW / halfWPerZ);
-}
-
 export function puzzleCutX(): number {
   const halfW = viewHalfH() * (DESIGN_WIDTH / DESIGN_HEIGHT);
   const screenW = halfW * 2;
@@ -222,6 +212,13 @@ export const FINALE_DEFAULT = { ...FINALE };
 export const VIEW = {
   fov: 45,
   cameraZ: 6.2,
+  /**
+   * 裁纸区镜头远近。已定，不要随手改。
+   * 蝴蝶 4.6，乌龟 4.2，鱼 4.8。看笔记本仍用 cameraZ。
+   */
+  cutZButterfly: 4.6,
+  cutZTurtle: 4.2,
+  cutZFish: 4.8,
   /** letterbox / 场景底色（轻松浅蓝纯色）。 */
   bg: 0x4db8ff,
   bgCenter: 0x6ec8ff,

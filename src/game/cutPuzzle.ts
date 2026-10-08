@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { fishCutCameraZ, NOTEBOOK, PAPER, PUZZLE, puzzleCutX, TRAIL, VIEW } from './design';
+import { NOTEBOOK, PAPER, PUZZLE, puzzleCutX, TRAIL, VIEW } from './design';
 import { type Poly2 } from './woodProfile';
 import { createChamferedSolid } from './woodChamfer';
 import {
@@ -13,7 +13,7 @@ import {
   type TurtlePart,
 } from './turtleLevel';
 import { BUTTERFLY, butterflyBody, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
-import { FISH, fishHint, fishParts, fishSheetReach, type FishPart } from './fishLevel';
+import { FISH, fishHint, fishParts, type FishPart } from './fishLevel';
 import type { SlashPhysics } from './slashPhysics';
 
 export type PuzzlePhase = 'show' | 'pan' | 'peek' | 'cut' | 'carry' | 'place' | 'inspect' | 'score';
@@ -186,12 +186,20 @@ function makePartMesh(
   return mesh;
 }
 
-/** 外形和颜色都进分。公式以后再调，低分也过关。 */
-function starRank(shape: number, color: number): number {
-  const q = shape * 0.65 + color * 0.35;
-  if (q >= 0.62) return 3;
-  if (q >= 0.38) return 2;
-  return 1;
+/**
+ * 星只看出手有没有盖住剪影。颜色贴反只降一星，不单独送星。
+ * 每一块都要够上，一块乱放就不能靠另一块拉高平均分。
+ */
+function starRank(ious: number[], colors: number[]): number {
+  const n = Math.max(1, ious.length);
+  const mean = ious.reduce((sum, n) => sum + n, 0) / n;
+  const worst = ious.reduce((min, n) => Math.min(min, n), 1);
+  const color = colors.reduce((sum, n) => sum + n, 0) / n;
+  let stars = 1;
+  if (mean >= 0.62 && worst >= 0.48) stars = 3;
+  else if (mean >= 0.4 && worst >= 0.22) stars = 2;
+  if (color < 0.5) stars = Math.max(1, stars - 1);
+  return stars;
 }
 
 function roundedRectShape(w: number, h: number, r: number): THREE.Shape {
@@ -1012,9 +1020,8 @@ export function createCutPuzzle(opts: {
   let goalTimer = 0;
   let lookX = 0;
   let lookZ = VIEW.cameraZ;
-  let sheetFit = 1;
   const cutCamZ = () =>
-    level === 'fish' ? fishCutCameraZ(sheetFit, fishSheetReach()) : VIEW.cameraZ * sheetFit;
+    level === 'turtle' ? VIEW.cutZTurtle : level === 'fish' ? VIEW.cutZFish : VIEW.cutZButterfly;
   let pan: {
     from: number;
     to: number;
@@ -1296,13 +1303,18 @@ export function createCutPuzzle(opts: {
     const live = frags.filter(
       (m) => ((m.userData.profile as Poly2[] | undefined)?.length ?? 0) >= 3,
     );
+    shadePivot.updateMatrixWorld(true);
+    const intoSlot = shadePivot.matrixWorld.clone().invert();
+    const slotPoly = (mesh: THREE.Mesh) => {
+      mesh.updateMatrixWorld(true);
+      return worldPoly(mesh).map((p) => {
+        _hit.set(p.x, p.y, 0).applyMatrix4(intoSlot);
+        return { x: _hit.x, y: _hit.y };
+      });
+    };
     const cands: { mesh: THREE.Mesh; id: string; iou: number }[] = [];
     for (const mesh of live) {
-      mesh.updateMatrixWorld(true);
-      const poly = worldPoly(mesh).map((p) => ({
-        x: p.x - board.position.x,
-        y: p.y - board.position.y,
-      }));
+      const poly = slotPoly(mesh);
       for (const part of parts) {
         cands.push({ mesh, id: part.id, iou: rasterIou(poly, part.poly) });
       }
@@ -1325,9 +1337,7 @@ export function createCutPuzzle(opts: {
       if (!got) colors.push(0);
       else colors.push(part.dark == null ? 1 : colorHit(got.mesh, part.dark));
     }
-    const shape = ious.reduce((s, n) => s + n, 0) / Math.max(1, ious.length);
-    const color = colors.reduce((s, n) => s + n, 0) / Math.max(1, colors.length);
-    stars = starRank(shape, color);
+    stars = starRank(ious, colors);
     phase = 'inspect';
     t = 0;
     fingers.clear();
@@ -1717,7 +1727,6 @@ export function createCutPuzzle(opts: {
     forget,
     sheetScale: () => PATTERN_FIT * shade[level].size,
     attachSheet: (mesh: THREE.Mesh) => {
-      sheetFit = mesh.scale.x || 1;
       hintLine.position.set(0, 0, 0);
       hintLine.quaternion.identity();
       hintLine.scale.set(1, 1, 1);
