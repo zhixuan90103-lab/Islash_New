@@ -30,8 +30,12 @@ export const PAPER = {
   depth: 0.007,
   edgeInset: 0,
   edge: 0xf7f4ee,
-  /** 切开后两块沿切缝分开的总宽度。只在平面上分开，碰撞不再把纸顶起来。 */
-  cutGap: 0.012,
+  /**
+   * 切开后两块之间的总宽度。只在平面上分开。
+   * 大块少退、小块多退，两边退开的和是这个值。
+   * 约 15px（390×844）。鱼的小块靠得近，缝要留给手指。
+   */
+  cutGap: 0.09,
   /** 落影：向右、向下。笔记和裁切料用同一套。 */
   shadowX: 0.04,
   shadowY: -0.05,
@@ -113,6 +117,16 @@ export function backdropCellW(): number {
   const h = 2 * dist * Math.tan((VIEW.fov * Math.PI) / 360);
   const viewW = h * (DESIGN_WIDTH / DESIGN_HEIGHT);
   return viewW / BACKDROP_GRID.cols;
+}
+
+/**
+ * 鱼的裁纸镜头。菱形左右尖加落影约占画面宽度的 68%，两边都留在屏幕内。
+ */
+export function fishCutCameraZ(sheetScale: number, reach: number): number {
+  const fitted = VIEW.cameraZ * sheetScale;
+  const halfWPerZ = Math.tan((VIEW.fov * Math.PI) / 360) * (DESIGN_WIDTH / DESIGN_HEIGHT);
+  const wantHalfW = (reach * sheetScale + Math.abs(PAPER.shadowX)) / 0.68;
+  return Math.max(fitted, wantHalfW / halfWPerZ);
 }
 
 export function puzzleCutX(): number {

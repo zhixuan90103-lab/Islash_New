@@ -91,15 +91,18 @@ function centerOnVolumeCom(mesh: THREE.Mesh): void {
 /** 碰撞体和画面一样薄。厚了会沿切缝相撞，而平面被锁住时只能把纸顶起来，叠成多层。 */
 function paperHull(mesh: THREE.Mesh): Float32Array {
   const raw = (mesh.userData.profile as { x: number; y: number }[] | undefined) ?? [];
-  const hz = PAPER.depth * 0.5;
+  const sx = mesh.scale.x || 1;
+  const sy = mesh.scale.y || 1;
+  const sz = mesh.scale.z || 1;
+  const hz = PAPER.depth * 0.5 * sz;
   const arr = new Float32Array(Math.max(1, raw.length) * 6);
   raw.forEach((p, i) => {
-    arr[i * 3] = p.x;
-    arr[i * 3 + 1] = p.y;
+    arr[i * 3] = p.x * sx;
+    arr[i * 3 + 1] = p.y * sy;
     arr[i * 3 + 2] = hz;
     const j = raw.length + i;
-    arr[j * 3] = p.x;
-    arr[j * 3 + 1] = p.y;
+    arr[j * 3] = p.x * sx;
+    arr[j * 3 + 1] = p.y * sy;
     arr[j * 3 + 2] = -hz;
   });
   return arr;

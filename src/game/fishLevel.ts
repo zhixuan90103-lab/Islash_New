@@ -7,8 +7,13 @@ export const FISH = {
   shadow: 0x8b8fc1,
 };
 
-/** 菱形尖到中心比前两关圆纸半径再大一截，裁切页上看着更满。 */
+/** 菱形尖到中心比前两关圆纸半径再大一截。 */
 const S = (TURTLE.r / 2) * 1.12;
+
+/** 裁切前，菱形尖到纸心的距离。 */
+export function fishSheetReach(): number {
+  return 2 * S;
+}
 
 function v(x: number, y: number): Poly2 {
   return { x: x * S, y: y * S };

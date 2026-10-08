@@ -66,9 +66,10 @@ export function mountBackdropPlane(scene: THREE.Scene): Backdrop {
   const viewW = h * (DESIGN_WIDTH / DESIGN_HEIGHT);
   const cellW = viewW / BACKDROP_GRID.cols;
   const span = cellW * BACKDROP_GRID.cols * 6;
-  const geom = new THREE.PlaneGeometry(span, h);
+  // 竖向多铺几屏。鱼的镜头比笔记本远时，只铺一屏会在上下露出硬边。
+  const geom = new THREE.PlaneGeometry(span, h * 3);
   const tex = checkerTexture();
-  tex.repeat.set(span / cellW, BACKDROP_GRID.rows);
+  tex.repeat.set(span / cellW, BACKDROP_GRID.rows * 3);
 
   const art = new THREE.Mesh(
     geom,

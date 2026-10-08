@@ -96,6 +96,11 @@ export async function mountSlashWorld(
     unmountPiece: (mesh) => {
       physics.removeMesh(mesh);
       scene.remove(mesh);
+      const shadow = paperShadows.get(mesh);
+      if (shadow) {
+        shadow.removeFromParent();
+        paperShadows.delete(mesh);
+      }
       mesh.geometry.dispose();
       wood.forget(mesh);
     },
@@ -160,15 +165,18 @@ export async function mountSlashWorld(
   };
 
   const openCutGap = (a: THREE.Mesh, b: THREE.Mesh) => {
-    const half = PAPER.cutGap * 0.5;
     const ca = worldCentroid(a);
     const cb = worldCentroid(b);
     _squeezeN.subVectors(cb, ca);
     _squeezeN.z = 0;
     if (_squeezeN.lengthSq() < 1e-8) return;
     _squeezeN.normalize();
-    a.position.addScaledVector(_squeezeN, -half);
-    b.position.addScaledVector(_squeezeN, half);
+    const volA = Math.max(1e-6, pieceVolume(a));
+    const volB = Math.max(1e-6, pieceVolume(b));
+    // 缝宽不变。大块少退，裁下来的小块多退，两边退开的和仍是 cutGap。
+    const share = volA + volB;
+    a.position.addScaledVector(_squeezeN, -PAPER.cutGap * (volB / share));
+    b.position.addScaledVector(_squeezeN, PAPER.cutGap * (volA / share));
   };
 
   const replaceCut = (
@@ -185,7 +193,8 @@ export async function mountSlashWorld(
     cucumberClip.hide();
     physics.removeMesh(old);
     old.removeFromParent();
-    old.geometry.dispose();
+    // 拼图要能把这张原样拿回来。几何留在网格上，撤销时不再克隆出第二张。
+    if (!puzzle.canCut()) old.geometry.dispose();
     wood.forget(old);
 
     const keep = pieceVolume(a) >= pieceVolume(b) ? a : b;

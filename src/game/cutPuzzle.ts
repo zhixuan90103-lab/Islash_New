@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { NOTEBOOK, PAPER, PUZZLE, puzzleCutX, TRAIL, VIEW } from './design';
+import { fishCutCameraZ, NOTEBOOK, PAPER, PUZZLE, puzzleCutX, TRAIL, VIEW } from './design';
 import { type Poly2 } from './woodProfile';
 import { createChamferedSolid } from './woodChamfer';
 import {
@@ -13,7 +13,7 @@ import {
   type TurtlePart,
 } from './turtleLevel';
 import { BUTTERFLY, butterflyBody, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
-import { FISH, fishHint, fishParts, type FishPart } from './fishLevel';
+import { FISH, fishHint, fishParts, fishSheetReach, type FishPart } from './fishLevel';
 import type { SlashPhysics } from './slashPhysics';
 
 export type PuzzlePhase = 'show' | 'pan' | 'peek' | 'cut' | 'carry' | 'place' | 'inspect' | 'score';
@@ -1013,7 +1013,8 @@ export function createCutPuzzle(opts: {
   let lookX = 0;
   let lookZ = VIEW.cameraZ;
   let sheetFit = 1;
-  const cutCamZ = () => VIEW.cameraZ * sheetFit;
+  const cutCamZ = () =>
+    level === 'fish' ? fishCutCameraZ(sheetFit, fishSheetReach()) : VIEW.cameraZ * sheetFit;
   let pan: {
     from: number;
     to: number;
@@ -1034,15 +1035,8 @@ export function createCutPuzzle(opts: {
   let hintOn = false;
   type CutSnap = {
     kind: 'cut';
-    geometry: THREE.BufferGeometry;
-    profile: Poly2[];
-    position: THREE.Vector3;
-    quaternion: THREE.Quaternion;
-    scale: THREE.Vector3;
-    material: THREE.Material | THREE.Material[];
-    depth: number;
-    role: string | undefined;
-    originVolume: number;
+    /** 被这刀切开的那张。先从画面拿下，撤销时原样放回，不再另做一张。 */
+    parent: THREE.Mesh;
     inFrags: boolean;
     children: [THREE.Mesh, THREE.Mesh];
   };
@@ -1145,7 +1139,7 @@ export function createCutPuzzle(opts: {
 
   const clearHistory = () => {
     for (const op of history) {
-      if (op.kind === 'cut') op.geometry.dispose();
+      if (op.kind === 'cut' && !op.parent.parent) op.parent.geometry.dispose();
     }
     history.length = 0;
   };
@@ -1255,21 +1249,9 @@ export function createCutPuzzle(opts: {
       opts.scene.add(hintLine);
       wm.decompose(hintLine.position, hintLine.quaternion, hintLine.scale);
     }
-    const profile = ((parent.userData.profile as Poly2[] | undefined) ?? []).map((p) => ({
-      x: p.x,
-      y: p.y,
-    }));
     history.push({
       kind: 'cut',
-      geometry: parent.geometry.clone(),
-      profile,
-      position: parent.position.clone(),
-      quaternion: parent.quaternion.clone(),
-      scale: parent.scale.clone(),
-      material: parent.material,
-      depth: Number(parent.userData.depth) || PAPER.depth,
-      role: parent.userData.puzzleRole as string | undefined,
-      originVolume: Number(parent.userData.originVolume) || 0,
+      parent,
       inFrags: frags.includes(parent),
       children: [a, b],
     });
@@ -1293,15 +1275,7 @@ export function createCutPuzzle(opts: {
       if (i >= 0) frags.splice(i, 1);
       opts.unmountPiece(child);
     }
-    const mesh = new THREE.Mesh(op.geometry, op.material);
-    mesh.position.copy(op.position);
-    mesh.quaternion.copy(op.quaternion);
-    mesh.scale.copy(op.scale);
-    mesh.userData.cuttable = true;
-    mesh.userData.profile = op.profile;
-    mesh.userData.depth = op.depth;
-    mesh.userData.originVolume = op.originVolume;
-    if (op.role) mesh.userData.puzzleRole = op.role;
+    const mesh = op.parent;
     opts.mountPiece(mesh);
     if (op.inFrags) frags.push(mesh);
     else {
@@ -1825,7 +1799,7 @@ export function createCutPuzzle(opts: {
             for (let i = history.length - 1; i >= 0; i--) {
               const op = history[i];
               if (op.kind !== 'cut') continue;
-              op.geometry.dispose();
+              if (!op.parent.parent) op.parent.geometry.dispose();
               history.splice(i, 1);
             }
             showNotebook();
