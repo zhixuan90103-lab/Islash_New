@@ -66,6 +66,8 @@ hit    = clamp(speedK * sizeK, SHAKE.floor, 1)
 
 顿帧时长：`lerp(freezeMin, freezeMax, hit)`，约 2–6 帧（0.032–0.1s）。连砍各刀自己的计时，不把旧飞块重新冻住。
 
+拼图料不走上面的踢飞。切开后大约 0.28 秒 Ease Out 在纸面上分开，见 [CUT-PUZZLE.md](./CUT-PUZZLE.md)「分开」。大块只平移。小块同时绕出点转到约 4°，滑完就停，角度不收回。
+
 ## 震屏（`SHAKE`）
 
 包络：**短直线出击**（ease-out，`attack` 10ms）→ **柔和收回**（ease-in cubic，`settle` 0.22s）。出击不加噪声。
