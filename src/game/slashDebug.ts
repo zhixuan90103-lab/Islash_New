@@ -33,6 +33,7 @@ type Chip = {
   r: number;
   rot: number;
   vr: number;
+  rgb: [number, number, number];
 };
 
 function lerpPt(a: DesignPoint, b: DesignPoint, t: number): DesignPoint {
@@ -84,7 +85,7 @@ function paintSpindle(
   a: DesignPoint,
   b: DesignPoint,
   halfW: number,
-  fill: string,
+  fill: string | CanvasGradient,
 ): void {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
@@ -123,7 +124,7 @@ export function createSlashOverlay(stage: HTMLElement): {
     c1?: DesignPoint,
     ownerId?: number,
   ) => void;
-  /** 夹缝颜色：屏上一点对应这块料加深后的颜色。 */
+  /** 料的颜色：屏上一点落在这块纸的哪一侧。夹缝再单独加深。 */
   setSheetInk: (ink: ((p: DesignPoint) => [number, number, number]) | null) => void;
   retractCrack: (ownerId: number) => void;
   allowCrack: (ownerId: number) => void;
@@ -163,6 +164,11 @@ export function createSlashOverlay(stage: HTMLElement): {
   const flashes: FlashSeg[] = [];
   let crack: { c0: DesignPoint; c1: DesignPoint } | null = null;
   let sheetInk: ((p: DesignPoint) => [number, number, number]) | null = null;
+  const paperRgb = (p: DesignPoint): [number, number, number] => {
+    if (sheetInk) return sheetInk(p);
+    const c = FLASH.crackColor;
+    return [(c >> 16) & 255, (c >> 8) & 255, c & 255];
+  };
   let crackRetract: {
     c0: DesignPoint;
     from: DesignPoint;
@@ -242,13 +248,8 @@ export function createSlashOverlay(stage: HTMLElement): {
         const w1 = (crackRetract?.w1 ?? FLASH.crackW * 0.5) * crackDraw;
         ctx.save();
         ctx.shadowBlur = 0;
-        const inkAt = (p: DesignPoint) => {
-          if (sheetInk) return sheetInk(p);
-          const c = FLASH.crackColor;
-          return [(c >> 16) & 255, (c >> 8) & 255, c & 255] as [number, number, number];
-        };
-        const a0 = inkAt(crack.c0);
-        const a1 = inkAt(crack.c1);
+        const a0 = paperRgb(crack.c0).map((v) => Math.round(v * FLASH.crackDarken));
+        const a1 = paperRgb(crack.c1).map((v) => Math.round(v * FLASH.crackDarken));
         const fade = FLASH.crackAlpha * crackDraw;
         const paint = ctx.createLinearGradient(crack.c0.x, crack.c0.y, crack.c1.x, crack.c1.y);
         paint.addColorStop(0, `rgba(${a0[0]}, ${a0[1]}, ${a0[2]}, ${fade})`);
@@ -295,8 +296,15 @@ export function createSlashOverlay(stage: HTMLElement): {
       const head = finale
         ? lerpPt({ x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 }, b, lenT)
         : lerpPt(a, b, Math.max(0.06, lenT));
+      const ink0 = paperRgb(tail);
+      const ink1 = paperRgb(head);
+      const lift = (v: number) => Math.round(v + (255 - v) * 0.38);
+      const glow = paperRgb({ x: (tail.x + head.x) * 0.5, y: (tail.y + head.y) * 0.5 });
+      const blade = ctx.createLinearGradient(tail.x, tail.y, head.x, head.y);
+      blade.addColorStop(0, `rgba(${lift(ink0[0])}, ${lift(ink0[1])}, ${lift(ink0[2])}, ${0.94 * fade})`);
+      blade.addColorStop(1, `rgba(${lift(ink1[0])}, ${lift(ink1[1])}, ${lift(ink1[2])}, ${0.94 * fade})`);
       ctx.save();
-      ctx.shadowColor = `rgba(210, 235, 255, ${0.85 * fade})`;
+      ctx.shadowColor = `rgba(${glow[0]}, ${glow[1]}, ${glow[2]}, ${0.85 * fade})`;
       ctx.shadowBlur =
         FLASH.glowW *
         (finale ? FINALE.glowScale : 1) *
@@ -304,13 +312,7 @@ export function createSlashOverlay(stage: HTMLElement): {
         Math.max(0.2, fade);
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
-      paintSpindle(
-        ctx,
-        tail,
-        head,
-        halfW,
-        `rgba(255, 255, 255, ${0.94 * fade})`,
-      );
+      paintSpindle(ctx, tail, head, halfW, blade);
       ctx.restore();
     };
 
@@ -519,7 +521,7 @@ export function createSlashOverlay(stage: HTMLElement): {
         ctx.save();
         ctx.translate(c.x, c.y);
         ctx.rotate(c.rot);
-        ctx.fillStyle = `rgba(232, 196, 140,${0.25 + 0.7 * a})`;
+        ctx.fillStyle = `rgba(${c.rgb[0]}, ${c.rgb[1]}, ${c.rgb[2]}, ${0.35 + 0.65 * a})`;
         ctx.fillRect(-c.r, -c.r * 0.35, c.r * 2, c.r * 0.7);
         ctx.restore();
       }
@@ -688,6 +690,7 @@ export function createSlashOverlay(stage: HTMLElement): {
             : 1.3 + Math.random() * 1.6 * (0.55 + hit),
         rot: Math.random() * Math.PI,
         vr: (Math.random() - 0.5) * 18,
+        rgb: paperRgb({ x: c0.x + dx * u, y: c0.y + dy * u }),
       });
     }
   };
