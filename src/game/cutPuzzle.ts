@@ -13,7 +13,7 @@ import {
   type TurtlePart,
 } from './turtleLevel';
 import { BUTTERFLY, butterflyBody, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
-import { fishParts, type FishPart } from './fishLevel';
+import { FISH, fishHint, fishParts, type FishPart } from './fishLevel';
 import type { SlashPhysics } from './slashPhysics';
 
 export type PuzzlePhase = 'show' | 'pan' | 'cut' | 'carry' | 'place' | 'inspect' | 'score';
@@ -292,6 +292,12 @@ export function createCutPuzzle(opts: {
     opacity: PAPER.shadowOpacity,
     depthWrite: false,
   });
+  const fishOuterDropMat = new THREE.MeshBasicMaterial({
+    color: 0x5e6288,
+    transparent: true,
+    opacity: PAPER.shadowOpacity,
+    depthWrite: false,
+  });
   const butterflyOuterDropMat = new THREE.MeshBasicMaterial({
     color: 0x8f5c70,
     transparent: true,
@@ -302,7 +308,7 @@ export function createCutPuzzle(opts: {
   const shade = {
     butterfly: { color: '#c98496', x: 0.1, y: 0, size: 1, angle: 5, opacity: 0.95 },
     turtle: { color: '#5f7828', x: 0, y: 0, size: 1, angle: 15, opacity: 1 },
-    fish: { color: '#8a88b0', x: 0, y: 0, size: 1, angle: 0, opacity: 1 },
+    fish: { color: '#8a88b0', x: 0.14, y: 0, size: 1.16 / 1.12, angle: 4, opacity: 1 },
   };
   let syncShadePanel = () => {};
   let turtleOverall = 0.9;
@@ -393,17 +399,17 @@ export function createCutPuzzle(opts: {
     const s = shade[level];
     const hex = Number.parseInt(s.color.slice(1), 16);
     if (level === 'fish') {
-      paintPaper(fishFace, 0xfbcad6);
-      paintPaper(fishEdge, 0xefb8c6);
-      paintPaper(fishOuterMat, 0x8a88b0);
-      fishFace.opacity = 1;
-      fishEdge.opacity = 1;
+      paintPaper(fishFace, 0x6f729c);
+      paintPaper(fishEdge, 0x6f729c);
+      paintPaper(fishOuterMat, FISH.shadow);
+      fishFace.opacity = 0.4;
+      fishEdge.opacity = 0.4;
       fishOuterMat.opacity = 1;
-      fishFace.transparent = false;
-      fishEdge.transparent = false;
+      fishFace.transparent = true;
+      fishEdge.transparent = true;
       fishOuterMat.transparent = false;
-      fishFace.depthWrite = true;
-      fishEdge.depthWrite = true;
+      fishFace.depthWrite = false;
+      fishEdge.depthWrite = false;
       fishOuterMat.depthWrite = true;
     }
     const mats = level === 'butterfly' ? [butterflyShadow] : level === 'fish' ? [] : [shadowFace, shadowEdge];
@@ -527,7 +533,7 @@ export function createCutPuzzle(opts: {
     } else if (level === 'fish') {
       look.cover = '#908db8';
       look.page = '#f4f1fb';
-      opts.setGrid?.(0xe3e1f3, 0xd4d2e8);
+      opts.setGrid?.(0xaecfe0, 0xabccdd);
     } else {
       look.cover = '#db96a8';
       look.page = '#fef2df';
@@ -574,6 +580,11 @@ export function createCutPuzzle(opts: {
         outerMesh.scale.setScalar(size);
         outerMesh.position.set(cx * (1 - size), cy * (1 - size), -0.002);
         outerMesh.renderOrder = 1;
+        const drop = new THREE.Mesh(outerMesh.geometry, fishOuterDropMat);
+        drop.userData.outerDrop = true;
+        drop.renderOrder = 0;
+        outerMesh.add(drop);
+        mesh.renderOrder = 3;
         extras.push(outerMesh);
         shadePivot.add(outerMesh);
       }
@@ -1086,7 +1097,7 @@ export function createCutPuzzle(opts: {
               new THREE.Vector3(0, -r, z),
               new THREE.Vector3(0, 0, z),
             ]
-          : [new THREE.Vector3(0, 0, z), new THREE.Vector3(0, 0, z)];
+          : fishHint().flatMap(([a, b]) => [new THREE.Vector3(a.x, a.y, z), new THREE.Vector3(b.x, b.y, z)]);
     hintLine.geometry.dispose();
     hintLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
     hintLine.computeLineDistances();
@@ -1835,6 +1846,7 @@ export function createCutPuzzle(opts: {
       fishEdge.dispose();
       fishOuterMat.map?.dispose();
       fishOuterMat.dispose();
+      fishOuterDropMat.dispose();
       shadowFace.map?.dispose();
       shadowFace.dispose();
       shadowEdge.map?.dispose();

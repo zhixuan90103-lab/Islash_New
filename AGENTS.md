@@ -36,7 +36,7 @@
 | 划切调研 | `docs/SLASH-RESEARCH.md` |
 | 连续切技术 | `docs/SLASH-TECH.md` |
 | 切割拼图（当前玩法） | [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md) · `cutPuzzle.ts` · `PUZZLE` |
-| 第三关鱼 | `src/game/fishLevel.ts`（菱形料，笔记本上七块粉纸加外影） |
+| 第三关鱼 | `src/game/fishLevel.ts`（菱形料，笔记本上七块半透明剪影加外影和落影） |
 | 关卡编辑器 | `?edit=1` · `src/editor/levelEditor.ts`（参数在画布外，可收起） |
 | 画面与界面 | [docs/UI.md](docs/UI.md) |
 | 圆柱 3D 切（管线） | [docs/CYLINDER-CUT.md](docs/CYLINDER-CUT.md)（拼图关未用图库圆柱） |

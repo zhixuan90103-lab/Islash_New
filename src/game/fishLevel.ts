@@ -1,12 +1,14 @@
 import type { Poly2 } from './woodProfile';
+import { TURTLE } from './turtleLevel';
 
 /** 第三关。斜放的正方形切成七块，拼成鱼。 */
 export const FISH = {
   paper: 0xb4b3dc,
-  shadow: 0x8a88b0,
+  shadow: 0x8b8fc1,
 };
 
-const S = 0.62;
+/** 菱形尖到中心比前两关圆纸半径再大一截，裁切页上看着更满。 */
+const S = (TURTLE.r / 2) * 1.12;
 
 function v(x: number, y: number): Poly2 {
   return { x: x * S, y: y * S };
@@ -38,6 +40,18 @@ export function fishParts(): FishPart[] {
     { id: 'finBR', poly: [e(-28.6, -87.4), e(77.4, -87.4), e(24.4, -140.5)], dark: null, outer: 1.2 },
     { id: 'finTR', poly: [e(80.5, 87.2), e(-25.6, 87.2), e(27.5, 140.2)], dark: null, outer: 1.2 },
     { id: 'finTL', poly: [e(16.5, 143.7), e(-36.5, 90.7), e(-89.6, 143.7)], dark: null, outer: 1.2 },
+  ];
+}
+
+/** 菱形上的 6 刀：中间方块四条边，再加上、下两个尖被竖直切开。 */
+export function fishHint(): Poly2[][] {
+  return [
+    [v(-1, 1), v(1, 1)],
+    [v(1, 1), v(1, -1)],
+    [v(1, -1), v(-1, -1)],
+    [v(-1, -1), v(-1, 1)],
+    [v(0, 1), v(0, 2)],
+    [v(0, -1), v(0, -2)],
   ];
 }
 
