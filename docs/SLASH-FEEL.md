@@ -98,7 +98,7 @@ Kick 方向 = 切开 `bladeDir`（入点→出点）。`camera.position` 反向�
 | flashAt / flashLife | 0.42 / 0.05 | 低于阈值不闪；白+轻色差，很淡 |
 | burst | 1.28 | 解冻冲量倍率 |
 
-碎屑大小：多数小点，约三成略大。闪是 overlay `screen` 合成，不是后处理 pass。
+碎屑大小：多数小点，约三成略大。颜色跟被切的纸，不再用木色。刀光也跟纸色，再往白提一截。整张 overlay 在按钮上面，不吃点击。闪是 overlay `screen` 合成，不是后处理 pass。
 
 ## 划痕（`TRAIL`，表现层）
 
