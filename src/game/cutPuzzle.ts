@@ -1529,15 +1529,18 @@ export function createCutPuzzle(opts: {
   };
   type V2 = { x: number; y: number };
   type PairTrack = {
-    ax: number;
-    ay: number;
-    bx: number;
-    by: number;
     ang: number;
-    mx: number;
-    my: number;
+    t: number;
   };
-  const PLACE_SMOOTH = 0.45;
+  const TURN_SLOW = 0.4;
+  const TURN_FAST = 1.8;
+  const TURN_SLOW_W = (40 * Math.PI) / 180;
+  const TURN_FAST_W = (200 * Math.PI) / 180;
+  const turnGain = (omega: number) => {
+    const u = Math.min(1, Math.max(0, (omega - TURN_SLOW_W) / (TURN_FAST_W - TURN_SLOW_W)));
+    const s = u * u * (3 - 2 * u);
+    return TURN_SLOW + (TURN_FAST - TURN_SLOW) * s;
+  };
   let primaryId: number | null = null;
   let center: V2 | null = null;
   let pair: PairTrack | null = null;
@@ -1562,40 +1565,27 @@ export function createCutPuzzle(opts: {
     return { a, b };
   };
 
-  const seedPair = (a: V2, b: V2): PairTrack => ({
-    ax: a.x,
-    ay: a.y,
-    bx: b.x,
-    by: b.y,
+  const seedPair = (a: V2, b: V2, t: number): PairTrack => ({
     ang: Math.atan2(b.y - a.y, b.x - a.x),
-    mx: (a.x + b.x) * 0.5,
-    my: (a.y + b.y) * 0.5,
+    t,
   });
 
-  const armPair = () => {
+  const armPair = (t: number) => {
     const pts = twoFingers();
-    pair = pts ? seedPair(pts.a, pts.b) : null;
+    pair = pts ? seedPair(pts.a, pts.b, t) : null;
   };
 
-  const stepPair = (a: V2, b: V2) => {
-    if (!pair) return null;
-    const k = PLACE_SMOOTH;
-    pair.ax += (a.x - pair.ax) * k;
-    pair.ay += (a.y - pair.ay) * k;
-    pair.bx += (b.x - pair.bx) * k;
-    pair.by += (b.y - pair.by) * k;
-    const ang = Math.atan2(pair.by - pair.ay, pair.bx - pair.ax);
-    const mx = (pair.ax + pair.bx) * 0.5;
-    const my = (pair.ay + pair.by) * 0.5;
+  const stepPair = (a: V2, b: V2, t: number) => {
+    if (!pair) return 0;
+    const ang = Math.atan2(b.y - a.y, b.x - a.x);
     let dA = ang - pair.ang;
     if (dA > Math.PI) dA -= Math.PI * 2;
     if (dA < -Math.PI) dA += Math.PI * 2;
-    const dX = mx - pair.mx;
-    const dY = my - pair.my;
+    const dt = Math.max(0.008, (t - pair.t) / 1000);
+    const applied = dA * turnGain(Math.abs(dA) / dt);
     pair.ang = ang;
-    pair.mx = mx;
-    pair.my = my;
-    return { dA, dX, dY };
+    pair.t = t;
+    return applied;
   };
 
   const lockCenter = (mesh: THREE.Mesh) => {
@@ -1769,7 +1759,7 @@ export function createCutPuzzle(opts: {
       };
       liftPiece(mesh);
     }
-    armPair();
+    armPair(e.timeStamp);
   };
 
   const onPlaceMove = (e: PointerEvent) => {
@@ -1781,8 +1771,8 @@ export function createCutPuzzle(opts: {
     const pts = twoFingers();
     if (pts && pair) {
       aim = null;
-      const step = stepPair(pts.a, pts.b);
-      if (step) turnAboutCenter(step.dA, step.dX, step.dY);
+      const dA = stepPair(pts.a, pts.b, e.timeStamp);
+      if (dA) turnAboutCenter(dA, 0, 0);
       return;
     }
     held.position.x += at.x - prev.x;
@@ -1813,7 +1803,7 @@ export function createCutPuzzle(opts: {
     if (e.pointerId === primaryId) {
       primaryId = fingers.keys().next().value ?? null;
     }
-    armPair();
+    armPair(e.timeStamp);
   };
 
   const onPlaceMoveWindow = (e: PointerEvent) => {
