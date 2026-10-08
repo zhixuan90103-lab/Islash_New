@@ -187,6 +187,7 @@ function colorHit(mesh: THREE.Mesh, wantDark: boolean): number {
 const _ray = new THREE.Raycaster();
 const _plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 const _hit = new THREE.Vector3();
+const _ndc = new THREE.Vector2();
 
 function pointInPoly(x: number, y: number, poly: Poly2[]): boolean {
   let inside = false;
@@ -1672,18 +1673,31 @@ export function createCutPuzzle(opts: {
     const base = restScales.get(mesh) ?? mesh.scale.clone();
     startScale(mesh, base.clone(), page.position.z + 0.055, false);
   };
+  const profilePin = (mesh: THREE.Mesh) => {
+    const raw = (mesh.userData.profile as Poly2[] | undefined) ?? [];
+    return raw.length >= 3 ? areaCentroid(raw) : null;
+  };
+  const pinWorld = (mesh: THREE.Mesh, pin: Poly2) => {
+    mesh.updateMatrixWorld(true);
+    const e = mesh.matrixWorld.elements;
+    return {
+      x: e[0] * pin.x + e[4] * pin.y + e[12],
+      y: e[1] * pin.x + e[5] * pin.y + e[13],
+    };
+  };
   const tickScales = (dt: number) => {
     for (let i = scaleTweens.length - 1; i >= 0; i--) {
       const item = scaleTweens[i];
       item.u = Math.min(1, item.u + dt / SCALE_DUR);
       const k = 1 - (1 - item.u) ** 3;
-      const keep = item.mesh === held && center ? worldCenter() : null;
+      const pin = profilePin(item.mesh);
+      const keep = pin ? pinWorld(item.mesh, pin) : null;
       item.mesh.scale.lerpVectors(item.from, item.to, k);
       item.mesh.position.z = item.fromZ + (item.toZ - item.fromZ) * k;
-      if (keep && held) {
-        const now = worldCenter();
-        held.position.x += keep.x - now.x;
-        held.position.y += keep.y - now.y;
+      if (keep && pin) {
+        const now = pinWorld(item.mesh, pin);
+        item.mesh.position.x += keep.x - now.x;
+        item.mesh.position.y += keep.y - now.y;
       }
       if (item.u < 1) continue;
       if (!item.lift && item.mesh !== held) item.mesh.renderOrder = 2;
@@ -1859,6 +1873,39 @@ export function createCutPuzzle(opts: {
     dwell = null;
   };
 
+  /** 本帧手指已经走了多少。事件里只累加，下一帧再改纸。 */
+  const pending = { dx: 0, dy: 0, dA: 0 };
+
+  const noteHandTurn = (dA: number) => {
+    if (!held || Math.abs(dA) <= 1e-4) return;
+    const { c } = slotOf(held);
+    const covered = parts.filter((part) => pointInPoly(c.x, c.y, part.poly));
+    if (covered.length === 1) aimDone = { mesh: held, partId: covered[0].id };
+    handTuned = held;
+  };
+
+  const flushPlace = () => {
+    if (!held) {
+      pending.dx = 0;
+      pending.dy = 0;
+      pending.dA = 0;
+      return;
+    }
+    const dx = pending.dx;
+    const dy = pending.dy;
+    const dA = pending.dA;
+    pending.dx = 0;
+    pending.dy = 0;
+    pending.dA = 0;
+    if (dx === 0 && dy === 0 && dA === 0) return;
+    if (dA !== 0) turnAboutCenter(dA, dx, dy);
+    else {
+      held.position.x += dx;
+      held.position.y += dy;
+    }
+    if (dA !== 0) noteHandTurn(dA);
+  };
+
   const turnAboutCenter = (dA: number, dX: number, dY: number) => {
     if (!held) return;
     const c = worldCenter();
@@ -1876,9 +1923,8 @@ export function createCutPuzzle(opts: {
     const r = stage.getBoundingClientRect();
     const w = r.width || 1;
     const h = r.height || 1;
-    const ndcX = ((e.clientX - r.left) / w) * 2 - 1;
-    const ndcY = -(((e.clientY - r.top) / h) * 2 - 1);
-    _ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), opts.camera);
+    _ndc.set(((e.clientX - r.left) / w) * 2 - 1, -(((e.clientY - r.top) / h) * 2 - 1));
+    _ray.setFromCamera(_ndc, opts.camera);
     if (!_ray.ray.intersectPlane(_plane, _hit)) return null;
     return { x: _hit.x, y: _hit.y };
   };
@@ -1938,24 +1984,21 @@ export function createCutPuzzle(opts: {
     const pts = twoFingers();
     if (pts && pair) {
       aim = null;
-      const dA = stepPair(pts.a, pts.b, e.timeStamp);
-      const dragging = e.pointerId === primaryId;
-      turnAboutCenter(dA, dragging ? at.x - prev.x : 0, dragging ? at.y - prev.y : 0);
-      if (Math.abs(dA) > 1e-4) {
-        const { c } = slotOf(held);
-        const covered = parts.filter((part) => pointInPoly(c.x, c.y, part.poly));
-        if (covered.length === 1) aimDone = { mesh: held, partId: covered[0].id };
-        handTuned = held;
+      pending.dA += stepPair(pts.a, pts.b, e.timeStamp);
+      if (e.pointerId === primaryId) {
+        pending.dx += at.x - prev.x;
+        pending.dy += at.y - prev.y;
       }
       return;
     }
-    held.position.x += at.x - prev.x;
-    held.position.y += at.y - prev.y;
+    pending.dx += at.x - prev.x;
+    pending.dy += at.y - prev.y;
   };
 
   const onPlaceUp = (e: PointerEvent) => {
     fingers.delete(e.pointerId);
     pair = null;
+    flushPlace();
     if (fingers.size === 0) {
       if (held && pose0 && pose0.mesh === held) {
         const moved =
@@ -2030,6 +2073,7 @@ export function createCutPuzzle(opts: {
     scorePlacement: () => finishPlace(),
     step: (dt) => {
       placeNotebook();
+      if (phase === 'place') flushPlace();
       tickAim(dt);
       if ((level === 'butterfly' || level === 'turtle' || level === 'fish') && hintT >= 0 && hintLine.visible) {
         hintT += dt;
