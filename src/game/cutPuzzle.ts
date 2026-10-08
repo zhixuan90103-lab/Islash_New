@@ -127,6 +127,30 @@ function bestTurn(poly: Poly2[], slot: Poly2[]): { a: number; iou: number } {
   return { a: bestA, iou: best };
 }
 
+function smallestTurn(a: number): number {
+  let d = a;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+}
+
+/** 在最佳朝向附近按 1° 再找一次，避免 15° 一档把小角度误判成需要帮助。 */
+function bestTurnFine(poly: Poly2[], slot: Poly2[]): { a: number; iou: number } {
+  const coarse = bestTurn(poly, slot);
+  const c = polyCentroid(poly);
+  let bestA = coarse.a;
+  let best = coarse.iou;
+  for (let deg = -8; deg <= 8; deg++) {
+    const a = coarse.a + (deg * Math.PI) / 180;
+    const iou = centeredIou(turnPoly(poly, a, c), slot);
+    if (iou > best) {
+      best = iou;
+      bestA = a;
+    }
+  }
+  return { a: smallestTurn(bestA), iou: best };
+}
+
 function colorHit(mesh: THREE.Mesh, wantDark: boolean): number {
   const raw = (mesh.userData.profile as Poly2[] | undefined) ?? [];
   if (raw.length < 3) return 0;
@@ -1589,6 +1613,95 @@ export function createCutPuzzle(opts: {
     };
   };
 
+  /** 停住时允许的手指抖动（剪影局部单位）。慢慢划过会超过这段。 */
+  const AIM_JITTER = 0.028;
+  const AIM_DWELL = 0.5;
+  const AIM_MIN = (5 * Math.PI) / 180;
+  const AIM_DUR = 0.7;
+  let aim:
+    | { total: number; applied: number; u: number; partId: string }
+    | null = null;
+  let aimDone: { mesh: THREE.Mesh; partId: string } | null = null;
+  let dwell: { x: number; y: number; t: number; partId: string } | null = null;
+
+  const slotOf = (mesh: THREE.Mesh) => {
+    shadePivot.updateMatrixWorld(true);
+    const into = shadePivot.matrixWorld.clone().invert();
+    mesh.updateMatrixWorld(true);
+    const poly = worldPoly(mesh).map((p) => {
+      _hit.set(p.x, p.y, 0).applyMatrix4(into);
+      return { x: _hit.x, y: _hit.y };
+    });
+    const c = poly.length >= 3 ? areaCentroid(poly) : { x: 0, y: 0 };
+    return { poly, c };
+  };
+
+  const tickAim = (dt: number) => {
+    if (aim && held) {
+      aim.u = Math.min(1, aim.u + dt / AIM_DUR);
+      const eased = aim.u * aim.u * (3 - 2 * aim.u);
+      const at = aim.total * eased;
+      const dA = at - aim.applied;
+      aim.applied = at;
+      turnAboutCenter(dA, 0, 0);
+      if (aim.u >= 1) {
+        aimDone = { mesh: held, partId: aim.partId };
+        aim = null;
+      }
+      return;
+    }
+    if (phase !== 'place' || !held || fingers.size !== 1) {
+      dwell = null;
+      return;
+    }
+    const { poly, c } = slotOf(held);
+    if (aimDone && aimDone.mesh === held) {
+      const stay = parts.find((p) => p.id === aimDone!.partId);
+      if (!stay || !pointInPoly(c.x, c.y, stay.poly)) aimDone = null;
+    }
+    const covered = parts.filter((part) => pointInPoly(c.x, c.y, part.poly));
+    if (covered.length !== 1) {
+      dwell = null;
+      return;
+    }
+    const partId = covered[0].id;
+    if (!dwell || dwell.partId !== partId) {
+      dwell = { x: c.x, y: c.y, t: 0, partId };
+      return;
+    }
+    const moved = Math.hypot(c.x - dwell.x, c.y - dwell.y);
+    if (moved > AIM_JITTER) {
+      dwell = { x: c.x, y: c.y, t: 0, partId };
+      return;
+    }
+    dwell.t += dt;
+    if (dwell.t < AIM_DWELL || aimDone?.mesh === held) return;
+    let winner: { id: string; turn: number; iou: number } | null = null;
+    let second = 0;
+    const area = polyArea(poly);
+    for (const part of parts) {
+      if (!pointInPoly(c.x, c.y, part.poly)) continue;
+      const slotArea = polyArea(part.poly);
+      const ratio = slotArea > 1e-6 ? area / slotArea : 0;
+      if (ratio < 0.6 || ratio > 1.5) continue;
+      const fit = bestTurnFine(poly, part.poly);
+      if (fit.iou < 0.42) continue;
+      if (!winner || fit.iou > winner.iou) {
+        second = winner ? winner.iou : 0;
+        winner = { id: part.id, turn: fit.a, iou: fit.iou };
+      } else if (fit.iou > second) second = fit.iou;
+    }
+    if (!winner || winner.iou - second < 0.08) return;
+    const steps = Math.floor(Math.abs(winner.turn) / AIM_MIN);
+    if (steps < 1) {
+      aimDone = { mesh: held, partId: winner.id };
+      return;
+    }
+    const total = Math.sign(winner.turn) * steps * AIM_MIN;
+    aim = { total, applied: 0, u: 0, partId: winner.id };
+    dwell = null;
+  };
+
   const turnAboutCenter = (dA: number, dX: number, dY: number) => {
     if (!held) return;
     const c = worldCenter();
@@ -1667,6 +1780,7 @@ export function createCutPuzzle(opts: {
     fingers.set(e.pointerId, at);
     const pts = twoFingers();
     if (pts && pair) {
+      aim = null;
       const step = stepPair(pts.a, pts.b);
       if (step) turnAboutCenter(step.dA, step.dX, step.dY);
       return;
@@ -1749,6 +1863,7 @@ export function createCutPuzzle(opts: {
     scorePlacement: () => finishPlace(),
     step: (dt) => {
       placeNotebook();
+      tickAim(dt);
       tickScales(dt);
       t += dt;
       if (peekWait >= 0) {
