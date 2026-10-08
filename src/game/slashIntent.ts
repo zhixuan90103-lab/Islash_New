@@ -197,6 +197,44 @@ function endUncutAttempt(stroke: SlashStroke, meshId: number): void {
   stroke.intent.earlyFlashed = false;
 }
 
+/** 入点已经靠近尖角时，收到这个角的中心。圆弧上的点不收。 */
+function snapEnterCorner(c0: DesignPoint, hull: DesignPoint[]): DesignPoint {
+  const n = hull.length;
+  if (n < 3) return c0;
+  const corners: DesignPoint[] = [];
+  for (let i = 0; i < n; i++) {
+    const prev = hull[(i - 1 + n) % n];
+    const p = hull[i];
+    const next = hull[(i + 1) % n];
+    const ax = p.x - prev.x;
+    const ay = p.y - prev.y;
+    const bx = next.x - p.x;
+    const by = next.y - p.y;
+    const la = Math.hypot(ax, ay) || 1;
+    const lb = Math.hypot(bx, by) || 1;
+    const dot = (ax * bx + ay * by) / (la * lb);
+    if (dot < 0.84) corners.push(p);
+  }
+  if (!corners.length) return c0;
+  const ranked = corners
+    .map((p) => ({ p, d: Math.hypot(p.x - c0.x, p.y - c0.y) }))
+    .sort((a, b) => a.d - b.d);
+  const nearest = ranked[0];
+  const cluster = ranked.filter((c) => Math.hypot(c.p.x - nearest.p.x, c.p.y - nearest.p.y) <= 16);
+  let x = 0;
+  let y = 0;
+  for (const c of cluster) {
+    x += c.p.x;
+    y += c.p.y;
+  }
+  const center = { x: x / cluster.length, y: y / cluster.length };
+  const dist = Math.hypot(center.x - c0.x, center.y - c0.y);
+  const next = ranked.find((c) => Math.hypot(c.p.x - nearest.p.x, c.p.y - nearest.p.y) > 16);
+  const limit = Math.min(10, Math.max(6, (next?.d ?? 40) * 0.16));
+  if (dist > limit) return c0;
+  return center;
+}
+
 function lockEnter(
   stroke: SlashStroke,
   mesh: THREE.Mesh,
@@ -485,7 +523,7 @@ export function resolveCutBySegment(
     const clipped = strokeClip ?? micro;
 
     if (fromOutside && micro && !insideB) {
-      const c0 = micro.c0;
+      const c0 = snapEnterCorner(micro.c0, proj.hull);
       const c1 = micro.c1;
       const enterEdge = micro.enterEdge;
       const exitEdge = micro.exitEdge;
@@ -512,7 +550,7 @@ export function resolveCutBySegment(
     }
 
     if (insideB && (fromOutside || outside) && clipped) {
-      lockEnter(stroke, mesh, camera, clipped.c0, b, clipped.enterEdge, true);
+      lockEnter(stroke, mesh, camera, snapEnterCorner(clipped.c0, proj.hull), b, clipped.enterEdge, true);
       return note('已锁 A，等出边');
     }
 
@@ -529,7 +567,7 @@ export function resolveCutBySegment(
       const down = rankedHullEdges(stroke.points[0], proj.hull)[0];
       const downOk = !!down && down.dist <= radius;
       if (second || downOk) {
-        lockEnter(stroke, mesh, camera, near.point, b, near.edge, true);
+        lockEnter(stroke, mesh, camera, snapEnterCorner(near.point, proj.hull), b, near.edge, true);
         return note('已锁 A，等出边');
       }
     }

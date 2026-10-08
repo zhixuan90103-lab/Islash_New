@@ -1638,6 +1638,8 @@ export function createCutPuzzle(opts: {
     | { total: number; applied: number; u: number; partId: string }
     | null = null;
   let aimDone: { mesh: THREE.Mesh; partId: string } | null = null;
+  /** 玩家刚用两指转过。离开当前剪影之前不再自动转。 */
+  let handTuned: THREE.Mesh | null = null;
   let dwell: { x: number; y: number; t: number; partId: string } | null = null;
 
   const slotOf = (mesh: THREE.Mesh) => {
@@ -1676,6 +1678,10 @@ export function createCutPuzzle(opts: {
       if (!stay || !pointInPoly(c.x, c.y, stay.poly)) aimDone = null;
     }
     const covered = parts.filter((part) => pointInPoly(c.x, c.y, part.poly));
+    if (handTuned === held) {
+      if (covered.length === 0) handTuned = null;
+      else return;
+    }
     if (covered.length !== 1) {
       dwell = null;
       return;
@@ -1798,6 +1804,12 @@ export function createCutPuzzle(opts: {
       const dA = stepPair(pts.a, pts.b, e.timeStamp);
       const dragging = e.pointerId === primaryId;
       turnAboutCenter(dA, dragging ? at.x - prev.x : 0, dragging ? at.y - prev.y : 0);
+      if (Math.abs(dA) > 1e-4) {
+        const { c } = slotOf(held);
+        const covered = parts.filter((part) => pointInPoly(c.x, c.y, part.poly));
+        if (covered.length === 1) aimDone = { mesh: held, partId: covered[0].id };
+        handTuned = held;
+      }
       return;
     }
     held.position.x += at.x - prev.x;

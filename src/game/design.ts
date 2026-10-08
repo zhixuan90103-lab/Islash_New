@@ -401,7 +401,7 @@ export const FLASH = {
   /** 没有料的颜色时的夹缝备用色。拼图关改用料本身加深。 */
   crackColor: 0xb1591a,
   /** 夹缝相对这块料的颜色变深多少。1 是原色，越小越深。 */
-  crackDarken: 0.86,
+  crackDarken: 0.72,
   /** 夹缝填充透明度。 */
   crackAlpha: 0.65,
   /**
@@ -414,11 +414,11 @@ export const FLASH = {
   /** 夹缝指尖（终点）线宽。 */
   crackW: 1.2,
   /** 夹缝入点基础宽度；随缝长再加宽。 */
-  crackW0: 2.5,
+  crackW0: 2.4,
   /** 缝每长 1px，入点宽度增加多少。 */
   crackGrow: 0.14,
   /** 入点宽度上限。 */
-  crackWMax: 6.6,
+  crackWMax: 2.4,
   /** 乱划取消：夹缝从刀尖收回 A 的时长（秒）。 */
   crackRetract: 0.16,
 };
