@@ -499,14 +499,11 @@ export async function mountSlashWorld(
     return id === active.pointerId;
   };
 
-  const tone = (hex: number): [number, number, number] => {
-    const k = FLASH.crackDarken;
-    return [
-      Math.round(((hex >> 16) & 255) * k),
-      Math.round(((hex >> 8) & 255) * k),
-      Math.round((hex & 255) * k),
-    ];
-  };
+  const tone = (hex: number): [number, number, number] => [
+    (hex >> 16) & 255,
+    (hex >> 8) & 255,
+    hex & 255,
+  ];
 
   const inkFor = (mesh: THREE.Mesh | undefined) => {
     if (!mesh || mesh.userData.puzzleRole !== 'stock') {
