@@ -287,7 +287,7 @@ body.native-app #shell {
   pointer-events: auto;
   font: 600 12px/1.2 system-ui, sans-serif;
   color: #6b7280;
-  transition: transform 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.28s ease;
 }
 
 .puzzle-settings-btn {
@@ -357,12 +357,12 @@ body.native-app #shell {
   box-shadow: 0 4px 0 rgba(107, 114, 128, 0.22);
   text-align: center;
   pointer-events: none;
-  transition: transform 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 0.28s ease;
 }
 
 .puzzle-moves.is-away,
 .puzzle-settings.is-away {
-  transform: translateY(calc(-100% - var(--safe-top) - 28px));
+  opacity: 0;
   pointer-events: none;
 }
 
@@ -381,13 +381,10 @@ body.native-app #shell {
   box-shadow: 0 4px 0 rgba(107, 114, 128, 0.22);
   pointer-events: none;
   transform: translateX(-50%);
-  transition: transform 0.85s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.35s linear;
+  transition: opacity 0.28s ease;
 }
 
-.puzzle-goal.is-away {
-  transform: translateX(-50%) translateY(calc(-100% - var(--safe-top) - 90px));
-}
-
+.puzzle-goal.is-away,
 .puzzle-goal.is-fade {
   opacity: 0;
 }
@@ -528,28 +525,36 @@ body.native-app #shell {
   position: absolute;
   left: 50%;
   bottom: calc(var(--safe-bottom) + 22px);
-  transform: translateX(-50%) translateY(28px);
-  width: 148px;
+  transform: translateX(-50%);
+  width: auto;
   height: 52px;
   border: 0;
-  padding: 0;
+  padding: 0 22px;
   margin: 0;
   border-radius: 26px;
   background: #fff;
   color: #6b7280;
-  font: 800 18px/52px system-ui, sans-serif;
-  letter-spacing: 0.08em;
+  font: 800 17px/52px system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
   opacity: 0;
   pointer-events: none;
   z-index: 6;
   box-shadow: 0 4px 0 rgba(107, 114, 128, 0.22);
-  transition: opacity 0.28s ease, transform 0.28s ease;
+  transform-origin: center;
+  transition: opacity 0.28s ease;
 }
 
 .puzzle-submit-hit.is-on {
   opacity: 1;
   pointer-events: auto;
-  transform: translateX(-50%) translateY(0);
+  transition: opacity 0.28s ease, transform 0.12s ease;
+  animation: puzzle-submit-in 0.32s ease;
+}
+
+@keyframes puzzle-submit-in {
+  from { transform: translateX(-50%) translateY(40px); }
+  to { transform: translateX(-50%) translateY(0); }
 }
 
 .puzzle-tool {
@@ -568,7 +573,9 @@ body.native-app #shell {
   opacity: 0;
   pointer-events: none;
   z-index: 6;
+  transform-origin: center;
   box-shadow: 0 4px 0 rgba(107, 114, 128, 0.22);
+  transition: opacity 0.28s ease, transform 0.12s ease;
 }
 
 .puzzle-tool svg {
@@ -586,12 +593,13 @@ body.native-app #shell {
 }
 
 .puzzle-tool.is-on {
-  opacity: 0.72;
+  opacity: 1;
   pointer-events: auto;
 }
 
-.puzzle-tool.is-ready {
-  opacity: 1;
+.puzzle-tool.is-on:disabled {
+  opacity: 0.5;
+  pointer-events: none;
 }
 
 .puzzle-preview {
@@ -608,14 +616,30 @@ body.native-app #shell {
   place-items: center;
   background: #fff;
   color: #6b7280;
-  pointer-events: auto;
+  opacity: 0;
+  pointer-events: none;
+  transform-origin: center;
   box-shadow: 0 4px 0 rgba(107, 114, 128, 0.22);
+  transition: opacity 0.28s ease, transform 0.12s ease;
 }
 
 .puzzle-preview svg {
   width: 22px;
   height: 22px;
   display: block;
+}
+
+.puzzle-preview.is-on {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.puzzle-preview.is-on.is-idle {
+  opacity: 0.5;
+}
+
+.puzzle-preview.is-idle:disabled {
+  pointer-events: none;
 }
 
 .puzzle-result {
@@ -659,6 +683,7 @@ body.native-app #shell {
   align-items: center;
   gap: 6px;
   font: 700 12px/1 system-ui, sans-serif;
+  transform-origin: center;
 }
 
 .puzzle-result-btn svg {
@@ -851,9 +876,39 @@ button {
   cursor: pointer;
 }
 
-button:active {
-  transform: scale(0.98);
-  background: #475569;
+.puzzle-settings-btn,
+.puzzle-tool,
+.puzzle-preview,
+.puzzle-submit-hit,
+.puzzle-result-btn {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.puzzle-settings-btn,
+.puzzle-tool,
+.puzzle-preview,
+.puzzle-result-btn {
+  transform-origin: center;
+  transition: opacity 0.28s ease, transform 0.12s ease;
+}
+
+.puzzle-settings-btn:active,
+.puzzle-tool.is-on:active:not(:disabled),
+.puzzle-preview:active:not(:disabled),
+.puzzle-result-btn:active {
+  transform: scale(1.2);
+  background: #fff;
+}
+
+.puzzle-submit-hit.is-on:active {
+  transform: translateX(-50%) scale(1.2);
+  background: #fff;
+}
+
+.puzzle-result-btn:active,
+.puzzle-result-btn:first-child:active,
+.puzzle-result-btn:last-child:active {
+  background: transparent;
 }
 
 .debug-panel {

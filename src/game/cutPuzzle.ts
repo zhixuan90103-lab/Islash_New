@@ -16,7 +16,7 @@ import { BUTTERFLY, butterflyBody, butterflyEyes, butterflyParts, type Butterfly
 import { FISH, fishHint, fishParts, type FishPart } from './fishLevel';
 import type { SlashPhysics } from './slashPhysics';
 
-export type PuzzlePhase = 'show' | 'pan' | 'cut' | 'carry' | 'place' | 'inspect' | 'score';
+export type PuzzlePhase = 'show' | 'pan' | 'peek' | 'cut' | 'carry' | 'place' | 'inspect' | 'score';
 
 export type PieceRole = 'stock';
 
@@ -707,8 +707,8 @@ export function createCutPuzzle(opts: {
   const hit = document.createElement('button');
   hit.type = 'button';
   hit.className = 'puzzle-submit-hit';
-  hit.textContent = '装上';
-  hit.setAttribute('aria-label', '装上');
+  hit.textContent = '开始拼装';
+  hit.setAttribute('aria-label', '开始拼装');
   hit.tabIndex = -1;
 
   const iconAttrs = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"';
@@ -769,6 +769,9 @@ export function createCutPuzzle(opts: {
   const goalEl = document.createElement('div');
   goalEl.className = 'puzzle-goal is-away';
   goalEl.textContent = '在规定步数内裁剪出蝴蝶翅膀';
+  const placeTipEl = document.createElement('div');
+  placeTipEl.className = 'puzzle-goal is-away';
+  placeTipEl.textContent = '拖动零件，摆放到正确的位置。';
 
   const applyLook = () => {
     cover.geometry.dispose();
@@ -800,6 +803,7 @@ export function createCutPuzzle(opts: {
   if (opts.uiRoot) {
     opts.uiRoot.appendChild(stepsEl);
     opts.uiRoot.appendChild(goalEl);
+    opts.uiRoot.appendChild(placeTipEl);
     opts.uiRoot.appendChild(hit);
     opts.uiRoot.appendChild(undoBtn);
     opts.uiRoot.appendChild(hintBtn);
@@ -1001,14 +1005,29 @@ export function createCutPuzzle(opts: {
 
   let phase: PuzzlePhase = 'show';
   let goalLive = false;
+  let placeTipLive = false;
+  let placeTipSeen = false;
+  let placeDragged = false;
   let holdSettings = false;
-  let holdPreview = false;
   let goalTimer = 0;
   let lookX = 0;
   let lookZ = VIEW.cameraZ;
   let sheetFit = 1;
   const cutCamZ = () => VIEW.cameraZ * sheetFit;
-  let pan: { from: number; to: number; u: number; then: 'cut' | 'place' } | null = null;
+  let pan: {
+    from: number;
+    to: number;
+    z0: number;
+    z1: number;
+    u: number;
+    then: 'cut' | 'place' | 'peek' | 'restore';
+  } | null = null;
+  /** Camera pose to restore after the eye button is released. */
+  let peekBack: { phase: PuzzlePhase; lookX: number; lookZ: number } | null = null;
+  let peekHold = false;
+  let peekDownAt = 0;
+  /** Seconds after the eye button lifts before the camera returns. Negative means not armed. */
+  let peekWait = -1;
   let t = 0;
   let cuts = 0;
   let stepsLeft = 0;
@@ -1070,18 +1089,38 @@ export function createCutPuzzle(opts: {
     goalEl.classList.remove('is-away');
     paintSteps();
   };
+  const showPlaceTip = () => {
+    if (placeTipSeen) return;
+    placeTipSeen = true;
+    placeTipLive = true;
+    goalTimer = 0;
+    placeTipEl.classList.remove('is-away', 'is-fade');
+  };
+  const dismissPlaceTip = () => {
+    if (!placeTipLive) return;
+    placeTipLive = false;
+    placeTipEl.classList.add('is-fade');
+    placeTipEl.classList.remove('is-away');
+  };
   paintSteps();
 
   const toolsLive = () => phase === 'cut' || phase === 'place';
 
   const paintTools = () => {
     const cutting = phase === 'cut';
-    const placing = phase === 'place';
-    undoBtn.classList.toggle('is-on', cutting || placing);
-    undoBtn.classList.toggle('is-ready', (cutting || placing) && history.length > 0);
+    const undoLive = cutting && history.length > 0;
+    undoBtn.classList.toggle('is-on', cutting);
+    undoBtn.disabled = cutting && !undoLive;
     hintBtn.classList.toggle('is-on', cutting);
-    hintBtn.classList.toggle('is-ready', cutting && hintOn);
     hintLine.visible = cutting && hintOn && !buttonLatched;
+    const opening = phase === 'show' || (phase === 'pan' && pan?.then === 'cut');
+    const assembling = phase === 'carry' || phase === 'place' || phase === 'inspect' || phase === 'score'
+      || (phase === 'pan' && pan?.then === 'place');
+    previewBtn.classList.toggle('is-on', !opening && !assembling);
+    const eyeLocked = phase === 'peek'
+      || (phase === 'pan' && (pan?.then === 'peek' || pan?.then === 'restore'));
+    previewBtn.classList.toggle('is-idle', !opening && eyeLocked && !peekHold);
+    previewBtn.disabled = eyeLocked && !peekHold;
   };
 
   const rebuildHint = () => {
@@ -1128,7 +1167,7 @@ export function createCutPuzzle(opts: {
     cuts = 0;
     stepsLeft = stepBudget();
     hintOn = level === 'butterfly';
-    hit.textContent = '装上';
+    hit.textContent = '开始拼装';
     clearHistory();
     resetPieces();
     for (const mesh of slots.values()) mesh.visible = true;
@@ -1205,7 +1244,7 @@ export function createCutPuzzle(opts: {
       opts.physics.removeMesh(mesh);
       mesh.position.z = lift;
     }
-    pan = { from: lookX, to: 0, u: 0, then: 'place' };
+    pan = { from: lookX, to: 0, z0: lookZ, z1: VIEW.cameraZ, u: 0, then: 'place' };
   };
 
   const rememberCut = (parent: THREE.Mesh, a: THREE.Mesh, b: THREE.Mesh) => {
@@ -1332,27 +1371,25 @@ export function createCutPuzzle(opts: {
     else if (phase === 'place') finishPlace();
   });
 
-  const returnPreview = () => {
-    resultEl.classList.remove('is-on');
-    starsEl.classList.remove('is-pop');
-    starsEl.dataset.n = '0';
-    goalLive = false;
+  const startPeek = () => {
+    if (phase === 'show' || phase === 'peek' || phase === 'carry') return false;
+    if (phase === 'pan') return false;
+    if (!peekBack) peekBack = { phase, lookX, lookZ };
     holdSettings = true;
-    holdPreview = true;
-    t = 0;
-    pan = null;
-    clearHistory();
-    hintLine.removeFromParent();
-    opts.clearBoard();
-    mountLevel();
-    rebuildHint();
-    lookX = 0;
-    lookZ = VIEW.cameraZ;
-    phase = 'show';
+    peekWait = -1;
+    phase = 'pan';
+    pan = { from: lookX, to: 0, z0: lookZ, z1: VIEW.cameraZ, u: 0, then: 'peek' };
     showNotebook();
     paintSteps();
     paintTools();
-    setThumbHit(false);
+    return true;
+  };
+  const releasePeek = () => {
+    if (!peekHold || !peekBack) return;
+    peekHold = false;
+    const held = (performance.now() - peekDownAt) / 1000;
+    peekWait = held > 2 ? 0 : Math.max(0, 2 - held);
+    paintTools();
   };
   const stopTool = (ev: Event) => {
     ev.preventDefault();
@@ -1383,8 +1420,24 @@ export function createCutPuzzle(opts: {
   };
   previewBtn.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
-    if (phase === 'show') return;
-    returnPreview();
+    if (previewBtn.disabled) return;
+    peekHold = true;
+    peekDownAt = performance.now();
+    if (!startPeek()) {
+      peekHold = false;
+      paintTools();
+      return;
+    }
+    paintTools();
+    if (ev.pointerId != null) previewBtn.setPointerCapture(ev.pointerId);
+  });
+  previewBtn.addEventListener('pointerup', (ev) => {
+    stopTool(ev);
+    releasePeek();
+  });
+  previewBtn.addEventListener('pointercancel', (ev) => {
+    stopTool(ev);
+    releasePeek();
   });
   replayBtn.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
@@ -1400,17 +1453,7 @@ export function createCutPuzzle(opts: {
     const target = ev.target;
     if (target instanceof Element && target.closest('.puzzle-preview, .puzzle-settings, .puzzle-result, .puzzle-tool, .puzzle-submit-hit')) return;
     if (goalLive) dismissGoal();
-    if (holdPreview && phase === 'show') {
-      phase = 'pan';
-      pan = { from: lookX, to: puzzleCutX(), u: 0, then: 'cut' };
-      holdPreview = false;
-      holdSettings = false;
-      goalLive = level === 'butterfly';
-      goalTimer = 0;
-      if (goalLive) goalEl.classList.remove('is-fade');
-      paintSteps();
-      opts.spawnBoard();
-    }
+    if (placeTipLive) dismissPlaceTip();
   });
   hintBtn.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
@@ -1657,6 +1700,10 @@ export function createCutPuzzle(opts: {
           held.position.distanceTo(pose0.p) > 1e-4 ||
           1 - Math.abs(held.quaternion.dot(pose0.q)) > 1e-5;
         if (moved) history.push({ kind: 'pose', mesh: held, p: pose0.p, q: pose0.q });
+        if (held.position.distanceTo(pose0.p) > 1e-4 && !placeDragged) {
+          placeDragged = true;
+          setThumbHit(true);
+        }
         paintTools();
       }
       if (held) restPiece(held);
@@ -1721,9 +1768,28 @@ export function createCutPuzzle(opts: {
       placeNotebook();
       tickScales(dt);
       t += dt;
+      if (peekWait >= 0) {
+        peekWait -= dt;
+        if (peekWait <= 0 && peekBack) {
+          peekWait = -1;
+          phase = 'pan';
+          pan = {
+            from: lookX,
+            to: peekBack.lookX,
+            z0: lookZ,
+            z1: peekBack.lookZ,
+            u: 0,
+            then: 'restore',
+          };
+        }
+      }
       if (goalLive && phase === 'cut') {
         goalTimer += dt;
         if (goalTimer >= 2) dismissGoal();
+      }
+      if (placeTipLive && phase === 'place') {
+        goalTimer += dt;
+        if (goalTimer >= 2) dismissPlaceTip();
       }
       const glide = () => {
         if (!pan) return false;
@@ -1732,10 +1798,7 @@ export function createCutPuzzle(opts: {
         pan.u = Math.min(1, pan.u + dt / Math.max(0.05, PUZZLE.panDur));
         const u = 1 - (1 - pan.u) ** 3;
         lookX = pan.from + (pan.to - pan.from) * u;
-        const zCut = cutCamZ();
-        lookZ = pan.then === 'cut'
-          ? VIEW.cameraZ + (zCut - VIEW.cameraZ) * u
-          : zCut + (VIEW.cameraZ - zCut) * u;
+        lookZ = pan.z0 + (pan.z1 - pan.z0) * u;
         if (pan.then === 'place') {
           const dx = lookX - prev + NOTEBOOK.x * (pan.u - prevU);
           for (const mesh of frags) mesh.position.x += dx;
@@ -1743,7 +1806,20 @@ export function createCutPuzzle(opts: {
         if (pan.u >= 1) {
           const then = pan.then;
           pan = null;
-          if (then === 'cut') beginCut();
+          if (then === 'peek') {
+            phase = 'peek';
+            lookX = 0;
+            lookZ = VIEW.cameraZ;
+            paintTools();
+          } else if (then === 'restore' && peekBack) {
+            phase = peekBack.phase;
+            lookX = peekBack.lookX;
+            lookZ = peekBack.lookZ;
+            peekBack = null;
+            holdSettings = false;
+            paintSteps();
+            paintTools();
+          } else if (then === 'cut') beginCut();
           else {
             phase = 'place';
             for (let i = history.length - 1; i >= 0; i--) {
@@ -1753,8 +1829,10 @@ export function createCutPuzzle(opts: {
               history.splice(i, 1);
             }
             showNotebook();
-            hit.textContent = '完成';
-            setThumbHit(true);
+            hit.textContent = '拼装完成';
+            placeDragged = false;
+            setThumbHit(false);
+            showPlaceTip();
             paintSteps();
             paintTools();
           }
@@ -1769,10 +1847,9 @@ export function createCutPuzzle(opts: {
         paintTools();
         setThumbHit(false);
         opts.setLook(lookX, lookZ);
-        if (t >= PUZZLE.showDur && !holdPreview) {
+        if (t >= PUZZLE.showDur) {
           phase = 'pan';
-          pan = { from: lookX, to: puzzleCutX(), u: 0, then: 'cut' };
-          holdPreview = false;
+          pan = { from: lookX, to: puzzleCutX(), z0: lookZ, z1: cutCamZ(), u: 0, then: 'cut' };
           holdSettings = false;
           goalLive = level === 'butterfly';
           goalTimer = 0;
@@ -1784,6 +1861,12 @@ export function createCutPuzzle(opts: {
       }
       if (phase === 'pan' || phase === 'carry') {
         glide();
+        opts.setLook(lookX, lookZ);
+        return;
+      }
+      if (phase === 'peek') {
+        lookX = 0;
+        lookZ = VIEW.cameraZ;
         opts.setLook(lookX, lookZ);
         return;
       }
@@ -1819,6 +1902,7 @@ export function createCutPuzzle(opts: {
       window.removeEventListener('pointercancel', onPlaceUpWindow);
       resultEl.remove();
       goalEl.remove();
+      placeTipEl.remove();
       tuneEl?.remove();
       opts.scene.remove(board);
       for (const mesh of slots.values()) mesh.geometry.dispose();
