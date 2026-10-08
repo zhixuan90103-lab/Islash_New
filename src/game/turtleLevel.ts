@@ -194,8 +194,7 @@ function inwardSpan(poly: Poly2[], edge: CutEdge): { a: Poly2; b: Poly2 } | null
 
 /**
  * 乌龟下一刀。没切过：整块上的水平直径。
- * 切过：不看颜色，也不锁在横竖方向。沿着玩家这条切边的中垂线，
- * 在还不是半圆的那一块上画到对面轮廓。已经是半圆就改切另一块。
+ * 切过：沿着这一刀的中垂线往下一块画。两块都已是半圆时，画在浅绿的下半块，不画深绿的壳。
  */
 export function turtleGuide(
   pieces: Poly2[][],
@@ -221,7 +220,12 @@ export function turtleGuide(
   }));
   const open = ranked.filter((item) => !item.semi && item.edge);
   const pool = open.length ? open : ranked.filter((item) => item.edge);
-  pool.sort((p, q) => q.area - p.area);
+  const midY = (poly: Poly2[]) => {
+    let y = 0;
+    for (const p of poly) y += p.y;
+    return y / Math.max(1, poly.length);
+  };
+  pool.sort((p, q) => (p.semi && q.semi ? midY(p.poly) - midY(q.poly) : q.area - p.area));
   const host = pool[0];
   if (!host?.edge) return horizontal();
   const span = inwardSpan(host.poly, host.edge);

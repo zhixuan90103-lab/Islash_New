@@ -148,7 +148,7 @@ export function createSlashOverlay(stage: HTMLElement): {
 } {
   const canvas = document.createElement('canvas');
   canvas.style.cssText =
-    'position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none;';
+    'position:absolute;inset:0;width:100%;height:100%;z-index:40;pointer-events:none;';
   stage.appendChild(canvas);
   const ctx = canvas.getContext('2d')!;
   const trails = new Map<number, ReturnType<typeof createFingerTrail>>();

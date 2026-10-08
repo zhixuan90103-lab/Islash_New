@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { applyBladeImpulse, pieceVolume } from './bladeForce';
-import { boardCutProgress, CUT, FINALE, FLASH, FX, PAPER, puzzleCutX, SHAKE, WOOD } from './design';
+import { boardCutProgress, CUT, FINALE, FX, PAPER, puzzleCutX, SHAKE, WOOD } from './design';
 import { createCutPuzzle } from './cutPuzzle';
 import { BUTTERFLY } from './butterflyLevel';
 import { FISH, fishSheet } from './fishLevel';
