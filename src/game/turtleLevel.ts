@@ -86,6 +86,149 @@ export function turtleEyeCenter(r = TURTLE.r): Poly2 {
   return { x: r * 1.72, y: r * 0.32 };
 }
 
+/** 直线 origin + t·dir 穿过多边形的那一段。凸多边形最多两个交点。 */
+function lineChord(poly: Poly2[], dirX: number, dirY: number): [Poly2, Poly2] | null {
+  const ts: number[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    const ex = b.x - a.x;
+    const ey = b.y - a.y;
+    const den = dirX * ey - dirY * ex;
+    if (Math.abs(den) < 1e-8) continue;
+    const t = (a.x * ey - a.y * ex) / den;
+    const u = (a.x * dirY - a.y * dirX) / den;
+    if (u >= -1e-4 && u <= 1 + 1e-4) ts.push(t);
+  }
+  if (ts.length < 2) return null;
+  ts.sort((p, q) => p - q);
+  const t0 = ts[0]!;
+  const t1 = ts[ts.length - 1]!;
+  if (t1 - t0 < 0.05) return null;
+  return [
+    { x: dirX * t0, y: dirY * t0 },
+    { x: dirX * t1, y: dirY * t1 },
+  ];
+}
+
+type CutEdge = { ax: number; ay: number; bx: number; by: number; mx: number; my: number; len: number };
+
+function insideConvex(poly: Poly2[], x: number, y: number): boolean {
+  let sign = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    const c = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+    if (Math.abs(c) < 1e-8) continue;
+    const s = c > 0 ? 1 : -1;
+    if (sign === 0) sign = s;
+    else if (s !== sign) return false;
+  }
+  return true;
+}
+
+/** 切出来的直边：比圆弧碎边长，而且中点不在圆周上。 */
+function cutEdges(poly: Poly2[], r: number): CutEdge[] {
+  const edges: CutEdge[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    const len = Math.hypot(b.x - a.x, b.y - a.y);
+    const mx = (a.x + b.x) * 0.5;
+    const my = (a.y + b.y) * 0.5;
+    if (len < r * 0.35 || Math.hypot(mx, my) > r * 0.96) continue;
+    edges.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, mx, my, len });
+  }
+  return edges;
+}
+
+function polyAreaAbs(poly: Poly2[]): number {
+  let s = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    s += a.x * b.y - b.x * a.y;
+  }
+  return Math.abs(s) * 0.5;
+}
+
+/** 一条直边几乎是直径：这块已经是半圆，转多少度都算。 */
+function isSemicircle(poly: Poly2[], r: number): boolean {
+  const edges = cutEdges(poly, r);
+  if (edges.length !== 1) return false;
+  const e = edges[0]!;
+  return Math.hypot(e.mx, e.my) < r * 0.18 && e.len > r * 1.55;
+}
+
+/** 从这条切边的中点，沿它的中垂线走进这块，直到对面的轮廓。 */
+function inwardSpan(poly: Poly2[], edge: CutEdge): { a: Poly2; b: Poly2 } | null {
+  const len = edge.len || 1;
+  let px = -(edge.by - edge.ay) / len;
+  let py = (edge.bx - edge.ax) / len;
+  const eps = 0.03;
+  if (!insideConvex(poly, edge.mx + px * eps, edge.my + py * eps)) {
+    px = -px;
+    py = -py;
+  }
+  if (!insideConvex(poly, edge.mx + px * eps, edge.my + py * eps)) return null;
+  let bestT = Infinity;
+  let hit: Poly2 | null = null;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i]!;
+    const b = poly[(i + 1) % poly.length]!;
+    const ex = b.x - a.x;
+    const ey = b.y - a.y;
+    const den = px * ey - py * ex;
+    if (Math.abs(den) < 1e-8) continue;
+    const t = ((a.x - edge.mx) * ey - (a.y - edge.my) * ex) / den;
+    const u = ((a.x - edge.mx) * py - (a.y - edge.my) * px) / den;
+    if (t < 0.04 || u < -1e-3 || u > 1 + 1e-3) continue;
+    if (t < bestT) {
+      bestT = t;
+      hit = { x: edge.mx + px * t, y: edge.my + py * t };
+    }
+  }
+  if (!hit) return null;
+  return { a: { x: edge.mx, y: edge.my }, b: hit };
+}
+
+/**
+ * 乌龟下一刀。没切过：整块上的水平直径。
+ * 切过：不看颜色，也不锁在横竖方向。沿着玩家这条切边的中垂线，
+ * 在还不是半圆的那一块上画到对面轮廓。已经是半圆就改切另一块。
+ */
+export function turtleGuide(
+  pieces: Poly2[][],
+  cuts: number,
+): { index: number; a: Poly2; b: Poly2 } | null {
+  if (!pieces.length) return null;
+  const r = TURTLE.r;
+  const horizontal = () => {
+    const chord = lineChord(pieces[0] ?? [], 1, 0);
+    if (!chord) return null;
+    const [p, q] = chord;
+    const a = p.x <= q.x ? p : q;
+    const b = p.x <= q.x ? q : p;
+    return { index: 0, a, b };
+  };
+  if (cuts <= 0 || pieces.length < 2) return horizontal();
+  const ranked = pieces.map((poly, index) => ({
+    index,
+    poly,
+    area: polyAreaAbs(poly),
+    semi: isSemicircle(poly, r),
+    edge: cutEdges(poly, r).sort((p, q) => q.len - p.len)[0] ?? null,
+  }));
+  const open = ranked.filter((item) => !item.semi && item.edge);
+  const pool = open.length ? open : ranked.filter((item) => item.edge);
+  pool.sort((p, q) => q.area - p.area);
+  const host = pool[0];
+  if (!host?.edge) return horizontal();
+  const span = inwardSpan(host.poly, host.edge);
+  if (!span) return horizontal();
+  return { index: host.index, a: span.a, b: span.b };
+}
+
 /** 料的本地 Y：上半深绿、下半浅绿。子块继承同一局部坐标。 */
 export function turtleInkTexture(): THREE.CanvasTexture {
   const n = 256;

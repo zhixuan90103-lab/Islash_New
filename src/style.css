@@ -602,6 +602,24 @@ body.native-app #shell {
   pointer-events: none;
 }
 
+.puzzle-hint-badge {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #374151;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+  box-shadow: 0 1px 0 rgba(17, 24, 39, 0.18);
+}
+
 .puzzle-preview {
   position: absolute;
   right: 76px;

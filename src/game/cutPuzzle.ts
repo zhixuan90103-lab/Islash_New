@@ -9,11 +9,12 @@ import {
   turtleHeadPoly,
   turtleParts,
   turtleShadeCaps,
+  turtleGuide,
   paperFaceTexture,
   type TurtlePart,
 } from './turtleLevel';
 import { BUTTERFLY, butterflyBody, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
-import { FISH, fishHint, fishParts, type FishPart } from './fishLevel';
+import { FISH, fishGuide, fishParts, type FishPart } from './fishLevel';
 import type { SlashPhysics } from './slashPhysics';
 
 export type PuzzlePhase = 'show' | 'pan' | 'peek' | 'cut' | 'carry' | 'place' | 'inspect' | 'score';
@@ -37,6 +38,8 @@ export type CutPuzzle = {
   dispose: () => void;
   /** 按当前摆放计分并弹出星。怎么算拼完还没定，画面上先不接按钮。 */
   scorePlacement: () => void;
+  /** 蝴蝶虚线已经亮起来时，靠近竖线的竖直刀收到线上。 */
+  hintGuide: () => boolean;
 };
 
 function polyArea(poly: Poly2[]): number {
@@ -783,6 +786,9 @@ export function createCutPuzzle(opts: {
   hintBtn.type = 'button';
   hintBtn.className = 'puzzle-tool is-right';
   hintBtn.innerHTML = hintIcon;
+  const hintBadge = document.createElement('span');
+  hintBadge.className = 'puzzle-hint-badge';
+  hintBtn.appendChild(hintBadge);
   hintBtn.setAttribute('aria-label', '提示');
 
   const hintMat = new THREE.LineDashedMaterial({
@@ -794,6 +800,24 @@ export function createCutPuzzle(opts: {
   const hintLine = new THREE.LineSegments(new THREE.BufferGeometry(), hintMat);
   hintLine.visible = false;
   hintLine.renderOrder = 4;
+  const hintDotGeo = new THREE.CircleGeometry(0.026, 24);
+  const hintDotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+  const hintBandMat = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    toneMapped: false,
+    depthTest: true,
+    side: THREE.DoubleSide,
+  });
+  const hintBand = new THREE.Mesh(new THREE.BufferGeometry(), hintBandMat);
+  hintBand.renderOrder = 4;
+  hintBand.visible = false;
+  const hintStart = new THREE.Mesh(hintDotGeo, hintDotMat);
+  const hintEnd = new THREE.Mesh(hintDotGeo, hintDotMat);
+  hintStart.renderOrder = 5;
+  hintEnd.renderOrder = 5;
+  hintStart.visible = false;
+  hintEnd.visible = false;
+  hintLine.add(hintBand, hintStart, hintEnd);
 
   const starsEl = document.createElement('div');
   starsEl.className = 'puzzle-stars';
@@ -1081,6 +1105,66 @@ export function createCutPuzzle(opts: {
   let cuts = 0;
   let stepsLeft = 0;
   let hintOn = false;
+  let hintLeft = 1;
+  let hintT = -1;
+  /** 当前这条提示：入点 a，出点 b。蝴蝶和乌龟都沿它长出来。 */
+  let hintSeg: { ax: number; ay: number; bx: number; by: number } | null = null;
+  let sheetMesh: THREE.Mesh | null = null;
+  const poseHint = (t: number) => {
+    const seg = hintSeg;
+    if (!seg) {
+      hintBand.visible = false;
+      hintStart.visible = false;
+      hintEnd.visible = false;
+      return;
+    }
+    const z = PAPER.depth * 1.6;
+    const dotIn = 0.24;
+    const lineDur = 0.7;
+    const endIn = 0.24;
+    const ease = (u: number) => u * u * (3 - 2 * u);
+    const startU = ease(Math.min(1, Math.max(0, t / dotIn)));
+    const lineU = ease(Math.min(1, Math.max(0, (t - dotIn) / lineDur)));
+    const endU = ease(Math.min(1, Math.max(0, (t - dotIn - lineDur) / endIn)));
+    const dx = seg.bx - seg.ax;
+    const dy = seg.by - seg.ay;
+    const len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len;
+    const uy = dy / len;
+    const px = -uy;
+    const py = ux;
+    const grown = len * lineU;
+    const bandW = 0.0065;
+    const dash = 0.08;
+    const gap = 0.045;
+    const verts: number[] = [];
+    for (let s = 0; s < grown - 1e-4; s += dash + gap) {
+      const s2 = Math.min(s + dash, grown);
+      const x0 = seg.ax + ux * s;
+      const y0 = seg.ay + uy * s;
+      const x1 = seg.ax + ux * s2;
+      const y1 = seg.ay + uy * s2;
+      verts.push(
+        x0 - px * bandW, y0 - py * bandW, z,
+        x0 + px * bandW, y0 + py * bandW, z,
+        x1 + px * bandW, y1 + py * bandW, z,
+        x0 - px * bandW, y0 - py * bandW, z,
+        x1 + px * bandW, y1 + py * bandW, z,
+        x1 - px * bandW, y1 - py * bandW, z,
+      );
+    }
+    const bandGeo = new THREE.BufferGeometry();
+    if (verts.length) bandGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+    hintBand.geometry.dispose();
+    hintBand.geometry = bandGeo;
+    hintBand.visible = verts.length > 0;
+    hintStart.position.set(seg.ax, seg.ay, z);
+    hintEnd.position.set(seg.bx, seg.by, z);
+    hintStart.visible = startU > 0;
+    hintEnd.visible = endU > 0;
+    hintStart.scale.setScalar(Math.max(0.001, startU));
+    hintEnd.scale.setScalar(Math.max(0.001, endU));
+  };
   type CutSnap = {
     kind: 'cut';
     /** 被这刀切开的那张。先从画面拿下，撤销时原样放回，不再另做一张。 */
@@ -1154,7 +1238,25 @@ export function createCutPuzzle(opts: {
     undoBtn.classList.toggle('is-on', cutting);
     undoBtn.disabled = cutting && !undoLive;
     hintBtn.classList.toggle('is-on', cutting);
-    hintLine.visible = cutting && hintOn && !buttonLatched;
+    hintBtn.disabled = cutting && (stepsLeft <= 0 || (!hintOn && hintLeft <= 0));
+    hintBadge.textContent = String(Math.max(0, hintLeft));
+    hintBtn.setAttribute('aria-label', `提示，还可打开 ${Math.max(0, hintLeft)} 次`);
+    const hintShown = cutting && hintOn && !buttonLatched;
+    const hintAnim = level === 'butterfly' || level === 'turtle' || level === 'fish';
+    if (hintAnim && hintShown && hintT < 0) {
+      hintT = 0;
+      poseHint(0);
+    }
+    if (!hintShown) hintT = -1;
+    hintLine.visible = hintShown;
+    hintMat.transparent = hintAnim;
+    hintMat.opacity = hintAnim ? 0 : 1;
+    if (!hintAnim) hintBand.visible = false;
+    if (!hintAnim || hintT < 0) {
+      hintStart.visible = false;
+      hintEnd.visible = false;
+      if (!hintAnim) hintBand.visible = false;
+    }
     const opening = phase === 'show' || (phase === 'pan' && pan?.then === 'cut');
     const assembling = phase === 'carry' || phase === 'place' || phase === 'inspect' || phase === 'score'
       || (phase === 'pan' && pan?.then === 'place');
@@ -1165,23 +1267,53 @@ export function createCutPuzzle(opts: {
     previewBtn.disabled = eyeLocked && !peekHold;
   };
 
+  const stockPieces = (): THREE.Mesh[] => {
+    const live = frags.filter(
+      (m) => m.parent && m.userData.puzzleRole === 'stock'
+        && ((m.userData.profile as Poly2[] | undefined)?.length ?? 0) >= 3,
+    );
+    if (live.length) return live;
+    return sheetMesh?.parent ? [sheetMesh] : [];
+  };
+
+  const mountHint = (mesh: THREE.Mesh) => {
+    hintLine.position.set(0, 0, 0);
+    hintLine.quaternion.identity();
+    hintLine.scale.set(1, 1, 1);
+    mesh.add(hintLine);
+  };
+
   const rebuildHint = () => {
     const r = TURTLE.r;
     const z = PAPER.depth * 1.6;
-    const pts =
-      level === 'butterfly'
-        ? [new THREE.Vector3(0, -r, z), new THREE.Vector3(0, r, z)]
-        : level === 'turtle'
-          ? [
-              new THREE.Vector3(-r, 0, z),
-              new THREE.Vector3(r, 0, z),
-              new THREE.Vector3(0, -r, z),
-              new THREE.Vector3(0, 0, z),
-            ]
-          : fishHint().flatMap(([a, b]) => [new THREE.Vector3(a.x, a.y, z), new THREE.Vector3(b.x, b.y, z)]);
+    if (level === 'turtle' || level === 'fish') {
+      const meshes = stockPieces();
+      const profiles = meshes.map((m) => (m.userData.profile as Poly2[] | undefined) ?? []);
+      const guide = level === 'turtle' ? turtleGuide(profiles, cuts) : fishGuide(profiles, cuts);
+      const host = guide ? meshes[guide.index] : meshes[0];
+      if (host) mountHint(host);
+      hintSeg = guide
+        ? { ax: guide.a.x, ay: guide.a.y, bx: guide.b.x, by: guide.b.y }
+        : null;
+      const pts = hintSeg
+        ? [new THREE.Vector3(hintSeg.ax, hintSeg.ay, z), new THREE.Vector3(hintSeg.bx, hintSeg.by, z)]
+        : [];
+      hintLine.geometry.dispose();
+      hintLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
+      hintLine.computeLineDistances();
+      if (hintT >= 0) poseHint(hintT);
+      return;
+    }
+    hintSeg = level === 'butterfly'
+      ? { ax: 0, ay: -r, bx: 0, by: r }
+      : null;
+    const pts = level === 'butterfly'
+      ? [new THREE.Vector3(0, -r, z), new THREE.Vector3(0, r, z)]
+      : [];
     hintLine.geometry.dispose();
     hintLine.geometry = new THREE.BufferGeometry().setFromPoints(pts);
     hintLine.computeLineDistances();
+    if (level === 'butterfly' && hintT >= 0) poseHint(hintT);
   };
   rebuildHint();
 
@@ -1209,6 +1341,7 @@ export function createCutPuzzle(opts: {
     cuts = 0;
     stepsLeft = stepBudget();
     hintOn = level === 'butterfly';
+    hintLeft = level === 'butterfly' ? 0 : level === 'turtle' ? 2 : 6;
     hit.textContent = '开始拼装';
     clearHistory();
     resetPieces();
@@ -1326,15 +1459,12 @@ export function createCutPuzzle(opts: {
     const mesh = op.parent;
     opts.mountPiece(mesh);
     if (op.inFrags) frags.push(mesh);
-    else {
-      hintLine.position.set(0, 0, 0);
-      hintLine.quaternion.identity();
-      hintLine.scale.set(1, 1, 1);
-      mesh.add(hintLine);
-    }
+    else mountHint(mesh);
     stepsLeft = Math.min(stepBudget(), stepsLeft + 1);
     cuts = Math.max(0, cuts - 1);
     buttonLatched = false;
+    if (level === 'turtle' || level === 'fish') hintOn = false;
+    rebuildHint();
     refreshButton();
     paintTools();
   };
@@ -1491,8 +1621,15 @@ export function createCutPuzzle(opts: {
   });
   hintBtn.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
-    if (phase !== 'cut') return;
-    hintOn = !hintOn;
+    if (phase !== 'cut' || stepsLeft <= 0) return;
+    if (!hintOn && hintLeft <= 0) return;
+    if (hintOn) hintOn = false;
+    else {
+      hintLeft -= 1;
+      hintOn = true;
+    }
+    hintT = hintOn && (level === 'butterfly' || level === 'turtle' || level === 'fish') ? 0 : -1;
+    if (hintT === 0) poseHint(0);
     paintTools();
   });
 
@@ -1865,13 +2002,14 @@ export function createCutPuzzle(opts: {
     canCut: () => phase === 'cut' && stepsLeft > 0,
     cuts: () => cuts,
     level: () => level,
+    /** 蝴蝶辅助线已经开始长出来，刀可以轻轻贴上去。 */
+    hintGuide: () => level === 'butterfly' && hintLine.visible && hintT >= 0.24,
     forget,
     sheetScale: () => PATTERN_FIT * shade[level].size,
     attachSheet: (mesh: THREE.Mesh) => {
-      hintLine.position.set(0, 0, 0);
-      hintLine.quaternion.identity();
-      hintLine.scale.set(1, 1, 1);
-      mesh.add(hintLine);
+      sheetMesh = mesh;
+      mountHint(mesh);
+      rebuildHint();
       paintTools();
     },
     rememberCut,
@@ -1883,6 +2021,8 @@ export function createCutPuzzle(opts: {
       }
       cuts += 1;
       stepsLeft = Math.max(0, stepsLeft - 1);
+      if (level === 'turtle' || level === 'fish') hintOn = false;
+      rebuildHint();
       refreshButton();
       return 'ok';
     },
@@ -1891,6 +2031,10 @@ export function createCutPuzzle(opts: {
     step: (dt) => {
       placeNotebook();
       tickAim(dt);
+      if ((level === 'butterfly' || level === 'turtle' || level === 'fish') && hintT >= 0 && hintLine.visible) {
+        hintT += dt;
+        poseHint(hintT);
+      }
       tickScales(dt);
       t += dt;
       if (peekWait >= 0) {
@@ -2017,6 +2161,10 @@ export function createCutPuzzle(opts: {
       previewBtn.remove();
       hintLine.geometry.dispose();
       hintMat.dispose();
+      hintDotGeo.dispose();
+      hintDotMat.dispose();
+      hintBand.geometry.dispose();
+      hintBandMat.dispose();
       stepsEl.remove();
       stage?.removeEventListener('pointerdown', onPlaceDown, true);
       stage?.removeEventListener('pointermove', onPlaceMove);

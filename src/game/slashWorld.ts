@@ -16,7 +16,7 @@ import {
 import { beginFollow } from './slashFollow';
 import { createSlashOverlay } from './slashDebug';
 import { cutMeshBySlash, prepareCuttable } from './slashCut';
-import { designToLocalXY, projectMeshHull } from './slashHit';
+import { designToLocalXY, localXYToDesign, projectMeshHull } from './slashHit';
 import {
   createSlashInput,
   segmentSpeedPxPerSec,
@@ -522,6 +522,24 @@ export async function mountSlashWorld(
     });
   };
 
+  const pullHint = (p: DesignPoint, prev: DesignPoint | null): DesignPoint => {
+    if (!puzzle.hintGuide()) return p;
+    const mesh = wood.cuttables.find((m) => m.userData.puzzleRole === 'stock');
+    if (!mesh) return p;
+    const local = designToLocalXY(p, camera, mesh);
+    if (!local || Math.abs(local.x) > 0.18) return p;
+    if (prev) {
+      const before = designToLocalXY(prev, camera, mesh);
+      if (before) {
+        const dx = local.x - before.x;
+        const dy = local.y - before.y;
+        if (Math.abs(dx) > Math.abs(dy) * 0.9) return p;
+      }
+    }
+    const pulled = localXYToDesign(mesh, camera, local.x * 0.58, local.y);
+    return pulled ?? p;
+  };
+
   const input = createSlashInput(stage, getLayout, {
     onStroke: (stroke) => {
       if (puzzle.phase() !== 'cut') return;
@@ -534,6 +552,10 @@ export async function mountSlashWorld(
     },
     onTip: (stroke, p) => {
       if (puzzle.phase() !== 'cut') return;
+      const prev = stroke.points.length >= 2 ? stroke.points[stroke.points.length - 2] : null;
+      const q = pullHint(p, prev);
+      p.x = q.x;
+      p.y = q.y;
       if (syncTrails(stroke)) {
         overlay.ensureTrail(stroke.pointerId);
         overlay.push(stroke.pointerId, p);
