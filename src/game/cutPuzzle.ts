@@ -1615,7 +1615,7 @@ export function createCutPuzzle(opts: {
 
   /** 停住时允许的手指抖动（剪影局部单位）。慢慢划过会超过这段。 */
   const AIM_JITTER = 0.028;
-  const AIM_DWELL = 0.5;
+  const AIM_DWELL = 0.3;
   const AIM_MIN = (5 * Math.PI) / 180;
   const AIM_DUR = 0.7;
   let aim:
