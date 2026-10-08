@@ -140,7 +140,33 @@ export async function mountSlashWorld(
     finish: boolean;
     chord: { c0: DesignPoint; c1: DesignPoint };
   }[] = [];
+  type OpenSettle = {
+    mesh: THREE.Mesh;
+    from: THREE.Vector3;
+    to: THREE.Vector3;
+    baseQuat: THREE.Quaternion;
+    localExit: THREE.Vector3;
+    localEntry: THREE.Vector3;
+    x0: THREE.Vector3;
+    e0: THREE.Vector3;
+    delta: THREE.Vector3;
+    yaw: number;
+    t: number;
+  };
+  const pendingOpen: OpenSettle[] = [];
+  const _yawQ = new THREE.Quaternion();
+  const _zAxis = new THREE.Vector3(0, 0, 1);
+  const _localP = new THREE.Vector3();
+  const _src = new THREE.Vector3();
+  const _dst = new THREE.Vector3();
+  const _exitW = new THREE.Vector3();
+  const _entryW = new THREE.Vector3();
   halt.fly = () => {
+    for (const o of pendingOpen) {
+      o.t = PAPER.openSlide + PAPER.openReturn;
+      poseOpen(o);
+    }
+    pendingOpen.length = 0;
     pendingFly.length = 0;
   };
   const _squeezeN = new THREE.Vector3();
@@ -177,6 +203,121 @@ export async function mountSlashWorld(
     const share = volA + volB;
     a.position.addScaledVector(_squeezeN, -PAPER.cutGap * (volB / share));
     b.position.addScaledVector(_squeezeN, PAPER.cutGap * (volA / share));
+  };
+
+  const rotZ = (v: THREE.Vector3, ang: number, out: THREE.Vector3) => {
+    const c = Math.cos(ang);
+    const s = Math.sin(ang);
+    out.set(v.x * c - v.y * s, v.x * s + v.y * c, 0);
+  };
+
+  // 切边两端落到目标位置。纸保持刚性。
+  const placeEdge = (
+    mesh: THREE.Mesh,
+    baseQuat: THREE.Quaternion,
+    localExit: THREE.Vector3,
+    localEntry: THREE.Vector3,
+    worldExit: THREE.Vector3,
+    worldEntry: THREE.Vector3,
+  ) => {
+    const z = mesh.position.z;
+    mesh.quaternion.copy(baseQuat);
+    mesh.position.set(0, 0, z);
+    mesh.updateMatrixWorld(true);
+    mesh.localToWorld(_src.copy(localExit));
+    mesh.localToWorld(_dst.copy(localEntry));
+    _dst.sub(_src);
+    _localP.copy(worldEntry).sub(worldExit);
+    const ang =
+      Math.atan2(_localP.y, _localP.x) - Math.atan2(_dst.y, _dst.x);
+    _yawQ.setFromAxisAngle(_zAxis, ang);
+    mesh.quaternion.premultiply(_yawQ);
+    mesh.updateMatrixWorld(true);
+    mesh.localToWorld(_src.copy(localExit));
+    mesh.position.add(_exitW.copy(worldExit).sub(_src));
+  };
+
+  // 留下的大块只平移。切下来的那块以出点为轴转开，同时向外移，到位后就停。
+  const armOpen = (
+    mesh: THREE.Mesh,
+    from: THREE.Vector3,
+    entry: DesignPoint,
+    exit: DesignPoint,
+    peel: boolean,
+  ) => {
+    const to = mesh.position.clone();
+    const delta = to.clone().sub(from);
+    delta.z = 0;
+    mesh.position.copy(from);
+    mesh.updateMatrixWorld(true);
+    const localExit = designToLocalXY(exit, camera, mesh);
+    const localEntry = peel ? designToLocalXY(entry, camera, mesh) : null;
+    const x0 = new THREE.Vector3();
+    const e0 = new THREE.Vector3();
+    let yaw = 0;
+    if (localExit && localEntry) {
+      mesh.localToWorld(x0.set(localExit.x, localExit.y, 0));
+      mesh.localToWorld(e0.set(localEntry.x, localEntry.y, 0));
+      _localP.set(e0.x - x0.x, e0.y - x0.y, 0);
+      const cross = _localP.x * delta.y - _localP.y * delta.x;
+      if (Math.abs(cross) > 1e-8 && _localP.lengthSq() > 1e-8) {
+        yaw = Math.sign(cross) * PAPER.openYaw;
+      }
+    }
+    mesh.position.copy(to);
+    if (!localExit) return;
+    pendingOpen.push({
+      mesh,
+      from,
+      to,
+      baseQuat: mesh.quaternion.clone(),
+      localExit: new THREE.Vector3(localExit.x, localExit.y, 0),
+      localEntry: new THREE.Vector3(
+        localEntry?.x ?? localExit.x,
+        localEntry?.y ?? localExit.y,
+        0,
+      ),
+      x0,
+      e0,
+      delta,
+      yaw,
+      t: 0,
+    });
+  };
+
+  const writeBody = (mesh: THREE.Mesh) => {
+    const rec = physics.bodies.find((b) => b.mesh === mesh);
+    if (!rec) return;
+    const p = mesh.position;
+    const q = mesh.quaternion;
+    rec.body.setTranslation({ x: p.x, y: p.y, z: p.z }, true);
+    rec.body.setRotation({ x: q.x, y: q.y, z: q.z, w: q.w }, true);
+    rec.body.setLinvel(_zero, true);
+    rec.body.setAngvel(_zero, true);
+  };
+
+  const poseOpen = (o: OpenSettle) => {
+    const dur = Math.max(1e-4, PAPER.openSlide + PAPER.openReturn);
+    const u = Math.min(1, o.t / dur);
+    const s = 1 - (1 - u) ** 3;
+    if (o.yaw === 0) {
+      o.mesh.position.copy(o.from).lerp(o.to, s);
+      o.mesh.quaternion.copy(o.baseQuat);
+      writeBody(o.mesh);
+      return;
+    }
+    _exitW.copy(o.x0).addScaledVector(o.delta, s);
+    rotZ(_src.copy(o.e0).sub(o.x0), o.yaw * s, _dst);
+    _entryW.copy(_exitW).add(_dst);
+    placeEdge(
+      o.mesh,
+      o.baseQuat,
+      o.localExit,
+      o.localEntry,
+      _exitW,
+      _entryW,
+    );
+    writeBody(o.mesh);
   };
 
   const replaceCut = (
@@ -350,7 +491,14 @@ export async function mountSlashWorld(
       : keepVol < originVol * CUT.finishRemain;
     if (puzzleCut) puzzle.rememberCut(commit.mesh, result.a, result.b);
     if (puzzleCut) puzzle.forget(commit.mesh);
-    if (puzzleCut) openCutGap(result.a, result.b);
+    if (puzzleCut) {
+      const fromA = result.a.position.clone();
+      const fromB = result.b.position.clone();
+      openCutGap(result.a, result.b);
+      const peelA = volA <= volB;
+      armOpen(result.a, fromA, commit.c0, commit.c1, peelA);
+      armOpen(result.b, fromB, commit.c0, commit.c1, !peelA);
+    }
     const pieces = replaceCut(commit.mesh, result.a, result.b, finish);
     const judged = puzzleCut ? puzzle.onCut(result.a, result.b) : 'ok';
     const hit = cutHit(speedPx, dropVol, keepVol);
@@ -750,7 +898,7 @@ export async function mountSlashWorld(
   return {
     step: (dt) => {
       puzzle.step(dt);
-      if (submitAfterFly && pendingFly.length === 0) {
+      if (submitAfterFly && pendingFly.length === 0 && pendingOpen.length === 0) {
         submitAfterFly = false;
         puzzle.requestInstall();
       }
@@ -809,6 +957,18 @@ export async function mountSlashWorld(
       for (const p of pendingFly) {
         p.keep.position.copy(p.keepRest).add(p.squeeze);
         p.drop.position.copy(p.dropRest).addScaledVector(p.squeeze, -1);
+      }
+      const openEnd = PAPER.openSlide + PAPER.openReturn;
+      for (let i = pendingOpen.length - 1; i >= 0; i--) {
+        const o = pendingOpen[i];
+        if (!o.mesh.parent) {
+          pendingOpen.splice(i, 1);
+          continue;
+        }
+        o.t += dt;
+        if (o.t >= openEnd) o.t = openEnd;
+        poseOpen(o);
+        if (o.t >= openEnd) pendingOpen.splice(i, 1);
       }
       syncPaperShadows();
       shake.step(dt);

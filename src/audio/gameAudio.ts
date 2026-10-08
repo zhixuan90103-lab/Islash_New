@@ -16,8 +16,6 @@ const pluginReady = () =>
   isNativeIos() && Capacitor.isPluginAvailable('NativeAudio');
 
 const web = createWebAudioBackend();
-let swooshDur = 0.3;
-let slideArmed = false;
 let lastCrack = 0;
 
 function clamp01(v: number): number {
@@ -36,40 +34,23 @@ export const gameAudio = {
   async preload(): Promise<void> {
     if (pluginReady()) {
       try {
-        const r = await NativeAudio.preload();
-        if (r?.swooshDur && r.swooshDur > 0.05) swooshDur = r.swooshDur;
+        await NativeAudio.preload();
         return;
       } catch (err) {
         console.warn('[audio] native preload', err);
       }
     }
-    const r = await web.preload();
-    if (r.swooshDur > 0.05) swooshDur = r.swooshDur;
+    await web.preload();
   },
 
   unlock(): void {
     web.unlock();
   },
 
-  /**
-   * 板上才叫。每刀一次。
-   * 慢划把样本拉到 slideMaxDur（≤1s），快划压到 slideMinDur。
-   */
-  slideOnBoard(speedPx: number): void {
-    if (slideArmed) return;
-    slideArmed = true;
-    const t = clamp01(speedPx / Math.max(1, SFX.speedRef));
-    const dur =
-      SFX.slideMaxDur + (SFX.slideMinDur - SFX.slideMaxDur) * t;
-    const rate = Math.max(0.25, Math.min(2.5, swooshDur / Math.max(0.12, dur)));
-    const volume = SFX.volSlow + (SFX.volFast - SFX.volSlow) * t;
-    play('swoosh', volume, rate);
-  },
+  /** 滑动不出声。切开仍走 crack。 */
+  slideOnBoard(_speedPx: number): void {},
 
-  /** 抬手或切完，下一刀可再响一次。 */
-  resetSlide(): void {
-    slideArmed = false;
-  },
+  resetSlide(): void {},
 
   crack(opts: { speedPx: number; sizeK: number; finish: boolean }): void {
     const now = performance.now();
@@ -89,7 +70,6 @@ export const gameAudio = {
   },
 
   dispose(): void {
-    slideArmed = false;
     web.dispose();
   },
 };
