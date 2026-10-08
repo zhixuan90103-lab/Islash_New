@@ -82,12 +82,13 @@ function areaCentroid(poly: Poly2[]): Poly2 {
   return { x: cx / (3 * a), y: cy / (3 * a) };
 }
 
-function rasterIou(keep: Poly2[], target: Poly2[]): number {
+function rasterOverlap(keep: Poly2[], target: Poly2[]): { iou: number; cover: number } {
   const n = 48;
   const pad = TURTLE.r * 1.35;
   const cell = (2 * pad) / n;
   let both = 0;
   let either = 0;
+  let onTarget = 0;
   for (let iy = 0; iy < n; iy++) {
     const y = -pad + (iy + 0.5) * cell;
     for (let ix = 0; ix < n; ix++) {
@@ -95,10 +96,18 @@ function rasterIou(keep: Poly2[], target: Poly2[]): number {
       const inT = pointInPoly(x, y, target);
       const inK = pointInPoly(x, y, keep);
       if (inT || inK) either++;
+      if (inT) onTarget++;
       if (inT && inK) both++;
     }
   }
-  return either <= 0 ? 0 : both / either;
+  return {
+    iou: either <= 0 ? 0 : both / either,
+    cover: onTarget <= 0 ? 0 : both / onTarget,
+  };
+}
+
+function rasterIou(keep: Poly2[], target: Poly2[]): number {
+  return rasterOverlap(keep, target).iou;
 }
 
 function turnPoly(poly: Poly2[], a: number, c: Poly2): Poly2[] {
@@ -134,8 +143,11 @@ function smallestTurn(a: number): number {
   return d;
 }
 
-/** 在最佳朝向附近按 1° 再找一次，避免 15° 一档把小角度误判成需要帮助。 */
-function bestTurnFine(poly: Poly2[], slot: Poly2[]): { a: number; iou: number } {
+/**
+ * 在最佳朝向附近按 1° 再找一次。
+ * 旁边差一截的角度也差不多贴，就当作角度含糊，不帮。
+ */
+function bestTurnFine(poly: Poly2[], slot: Poly2[]): { a: number; iou: number; sharp: boolean } {
   const coarse = bestTurn(poly, slot);
   const c = polyCentroid(poly);
   let bestA = coarse.a;
@@ -148,7 +160,12 @@ function bestTurnFine(poly: Poly2[], slot: Poly2[]): { a: number; iou: number } 
       bestA = a;
     }
   }
-  return { a: smallestTurn(bestA), iou: best };
+  let sharp = best >= 0;
+  for (const deg of [20, -20, 35, -35, 90, -90, 180]) {
+    const iou = centeredIou(turnPoly(poly, bestA + (deg * Math.PI) / 180, c), slot);
+    if (iou > best - 0.05) sharp = false;
+  }
+  return { a: smallestTurn(bestA), iou: best, sharp };
 }
 
 function colorHit(mesh: THREE.Mesh, wantDark: boolean): number {
@@ -220,9 +237,9 @@ function starRank(ious: number[], colors: number[]): number {
   const worst = ious.reduce((min, n) => Math.min(min, n), 1);
   const color = colors.reduce((sum, n) => sum + n, 0) / n;
   let stars = 1;
-  if (mean >= 0.62 && worst >= 0.48) stars = 3;
-  else if (mean >= 0.4 && worst >= 0.22) stars = 2;
-  if (color < 0.5) stars = Math.max(1, stars - 1);
+  if (mean >= 0.5 && worst >= 0.36) stars = 3;
+  else if (mean >= 0.32 && worst >= 0.16) stars = 2;
+  if (color < 0.35) stars = Math.max(1, stars - 1);
   return stars;
 }
 
@@ -1336,11 +1353,20 @@ export function createCutPuzzle(opts: {
         return { x: _hit.x, y: _hit.y };
       });
     };
+    const turtleTargets = level === 'turtle'
+      ? new Map(turtleShadeCaps().map((poly, i) => [parts[i]?.id, poly] as const))
+      : null;
     const cands: { mesh: THREE.Mesh; id: string; iou: number }[] = [];
     for (const mesh of live) {
       const poly = slotPoly(mesh);
       for (const part of parts) {
-        cands.push({ mesh, id: part.id, iou: rasterIou(poly, part.poly) });
+        const target = turtleTargets?.get(part.id) ?? part.poly;
+        const hit = rasterOverlap(poly, target);
+        cands.push({
+          mesh,
+          id: part.id,
+          iou: level === 'turtle' ? hit.cover : hit.iou,
+        });
       }
     }
     cands.sort((a, b) => b.iou - a.iou);
@@ -1532,7 +1558,7 @@ export function createCutPuzzle(opts: {
     ang: number;
     t: number;
   };
-  const TURN_SLOW = 0.4;
+  const TURN_SLOW = 1;
   const TURN_FAST = 1.8;
   const TURN_SLOW_W = (40 * Math.PI) / 180;
   const TURN_FAST_W = (200 * Math.PI) / 180;
@@ -1675,20 +1701,18 @@ export function createCutPuzzle(opts: {
       const ratio = slotArea > 1e-6 ? area / slotArea : 0;
       if (ratio < 0.6 || ratio > 1.5) continue;
       const fit = bestTurnFine(poly, part.poly);
-      if (fit.iou < 0.42) continue;
+      if (fit.iou < 0.42 || !fit.sharp) continue;
       if (!winner || fit.iou > winner.iou) {
         second = winner ? winner.iou : 0;
         winner = { id: part.id, turn: fit.a, iou: fit.iou };
       } else if (fit.iou > second) second = fit.iou;
     }
     if (!winner || winner.iou - second < 0.08) return;
-    const steps = Math.floor(Math.abs(winner.turn) / AIM_MIN);
-    if (steps < 1) {
+    if (Math.abs(winner.turn) < AIM_MIN) {
       aimDone = { mesh: held, partId: winner.id };
       return;
     }
-    const total = Math.sign(winner.turn) * steps * AIM_MIN;
-    aim = { total, applied: 0, u: 0, partId: winner.id };
+    aim = { total: winner.turn, applied: 0, u: 0, partId: winner.id };
     dwell = null;
   };
 
@@ -1772,7 +1796,8 @@ export function createCutPuzzle(opts: {
     if (pts && pair) {
       aim = null;
       const dA = stepPair(pts.a, pts.b, e.timeStamp);
-      if (dA) turnAboutCenter(dA, 0, 0);
+      const dragging = e.pointerId === primaryId;
+      turnAboutCenter(dA, dragging ? at.x - prev.x : 0, dragging ? at.y - prev.y : 0);
       return;
     }
     held.position.x += at.x - prev.x;
