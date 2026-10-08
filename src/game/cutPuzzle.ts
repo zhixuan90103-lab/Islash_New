@@ -237,9 +237,9 @@ function starRank(ious: number[], colors: number[]): number {
   const worst = ious.reduce((min, n) => Math.min(min, n), 1);
   const color = colors.reduce((sum, n) => sum + n, 0) / n;
   let stars = 1;
-  if (mean >= 0.5 && worst >= 0.36) stars = 3;
-  else if (mean >= 0.32 && worst >= 0.16) stars = 2;
-  if (color < 0.35) stars = Math.max(1, stars - 1);
+  if (mean >= 0.56 && worst >= 0.42) stars = 3;
+  else if (mean >= 0.36 && worst >= 0.18) stars = 2;
+  if (color < 0.42) stars = Math.max(1, stars - 1);
   return stars;
 }
 
