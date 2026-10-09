@@ -74,7 +74,7 @@ HUD 状态行有 `plugin: true/false`。`false` = 仍在默认 `CAPBridgeViewCon
 | 多指接线检索 | [SLASH-TECH.md](./SLASH-TECH.md) §14 |
 | 手指划痕 | `TRAIL` · `slashTrail.ts` · [SLASH-FEEL.md](./SLASH-FEEL.md) |
 | 顿帧 / 震屏 / 碎屑 | `SHAKE` `FX` · [SLASH-FEEL.md](./SLASH-FEEL.md) |
-| 刀的触觉（马达） | `HAPTIC` · `slashHaptics.ts` · [SLASH-FEEL.md](./SLASH-FEEL.md) |
+| 刀、按钮、拿起的触觉 | `HAPTIC` · `slashHaptics.ts` · [SLASH-FEEL.md](./SLASH-FEEL.md) |
 | 木头网格 / 倒角 | `woodProfile.ts` + `woodChamfer.ts` · [SLASH-DESIGN.md](./SLASH-DESIGN.md)「几何」 |
 | 背景 / 灯光 / 木色 | `VIEW` + `src/game/backdrop.ts` + `src/main.ts` |
 | 音效 | `SFX` · `src/audio/gameAudio.ts` · [AUDIO.md](./AUDIO.md) |

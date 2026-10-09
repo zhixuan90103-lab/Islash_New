@@ -542,9 +542,15 @@ export const HAPTIC = {
   /** 按钮点下去且这次真的生效。 */
   tapI: 0.45,
   tapS: 0.65,
-  /** 拼放第一次拿起。接近入刀强度，锐度更低。拖动和松手不震。 */
-  grabI: 0.4,
+  /** 拼放第一次拿起的瞬态。按下立刻打。拖动和松手不震。 */
+  grabI: 0.5,
   grabS: 0.2,
+  /** 余韵比瞬态晚这么多秒才开始。 */
+  grabTailGap: 0.05,
+  /** 余韵持续秒数。强度在这段里从满收到零。 */
+  grabTailDur: 0.15,
+  grabTailI: 0.35,
+  grabTailS: 0.1,
 };
 
 export const HAPTIC_DEFAULT = { ...HAPTIC };
@@ -562,7 +568,7 @@ export const SFX = {
   slideMinDur: 0.22,
   volSlow: 0.16,
   volFast: 0.42,
-  crackVol: 0.7,
+  crackVol: 1.15,
   /** 小块切开的音调倍率（更尖）。大块用 crackRateBig。 */
   crackRateSmall: 1.18,
   crackRateBig: 0.82,

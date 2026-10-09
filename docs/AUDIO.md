@@ -2,7 +2,7 @@
 
 配套：[AGENTS.md](../AGENTS.md) · [ENGINEERING.md](./ENGINEERING.md)
 
-> 已落地两条：板上滑动 whoosh（每刀一次，慢划最长 1s）+ 切开裂木（大小+刀速调制）。  
+> 已落地：切开剪纸（大小+刀速调制）。滑动不出声。按钮、拿起、放下各一声，音量都是 0.85，和马达并列，见 [SLASH-FEEL.md](./SLASH-FEEL.md)「按钮和拿起」。  
 > 桌面走 WebAudio；真机走 `NativeAudio` 插件（`plugins/native-audio/`）。完整批处理规范仍如下。
 
 ## 1. 结论

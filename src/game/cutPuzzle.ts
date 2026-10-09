@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { gameAudio } from '../audio/gameAudio';
 import { HAPTIC, NOTEBOOK, PAPER, PUZZLE, puzzleCutX, TRAIL, VIEW } from './design';
 import { type Poly2 } from './woodProfile';
 import { createChamferedSolid } from './woodChamfer';
@@ -1080,6 +1081,10 @@ export function createCutPuzzle(opts: {
     addRange('按钮锐度', () => HAPTIC.tapS, (n) => { HAPTIC.tapS = n; }, 0, 1, 0.01, false);
     addRange('拿起强度', () => HAPTIC.grabI, (n) => { HAPTIC.grabI = n; }, 0, 1, 0.01, false);
     addRange('拿起锐度', () => HAPTIC.grabS, (n) => { HAPTIC.grabS = n; }, 0, 1, 0.01, false);
+    addRange('余韵间隔', () => HAPTIC.grabTailGap, (n) => { HAPTIC.grabTailGap = n; }, 0, 0.3, 0.01, false);
+    addRange('余韵时长', () => HAPTIC.grabTailDur, (n) => { HAPTIC.grabTailDur = n; }, 0, 0.5, 0.01, false);
+    addRange('余韵强度', () => HAPTIC.grabTailI, (n) => { HAPTIC.grabTailI = n; }, 0, 1, 0.01, false);
+    addRange('余韵锐度', () => HAPTIC.grabTailS, (n) => { HAPTIC.grabTailS = n; }, 0, 1, 0.01, false);
     addRange('外皮边', () => look.rim, (n) => { look.rim = n; }, 0.02, 0.22);
     addRange('线圈边', () => look.spine, (n) => { look.spine = n; }, 0.08, 0.42);
     addRange('外皮厚', () => look.coverDepth, (n) => { look.coverDepth = n; }, 0.04, 0.24);
@@ -1651,7 +1656,10 @@ export function createCutPuzzle(opts: {
     t = 0;
     fingers.clear();
     endPlace();
-    if (held) restPiece(held);
+    if (held) {
+      restPiece(held);
+      gameAudio.drop();
+    }
     held = null;
     setThumbHit(false);
     paintTools();
@@ -2237,7 +2245,10 @@ export function createCutPuzzle(opts: {
         }
         paintTools();
       }
-      if (held) restPiece(held);
+      if (held) {
+        restPiece(held);
+        gameAudio.drop();
+      }
       held = null;
       pose0 = null;
       endPlace();

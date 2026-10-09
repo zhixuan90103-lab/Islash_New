@@ -1,15 +1,51 @@
+import { gameAudio } from '../audio/gameAudio';
+import { haptics } from '../utils/haptics';
 import { HAPTIC, bladeSpeedScale } from './design';
 import type { IntentFrame } from './slashIntent';
-import { haptics } from '../utils/haptics';
 
 /** 按钮这次按下真的做了事。 */
 export function tapButton(): void {
+  gameAudio.tap();
   void haptics.stackImpact(HAPTIC.tapI, HAPTIC.tapS);
 }
 
-/** 拼放第一次拿起一块。第二指、拖动、松手不打。 */
+/** 拼放第一次拿起一块。第二指、拖动、松手不打。瞬态立刻打，随后一段衰减的持续余韵。 */
 export function grabPiece(): void {
-  void haptics.stackImpact(HAPTIC.grabI, HAPTIC.grabS);
+  gameAudio.lift();
+  const gap = Math.max(0, HAPTIC.grabTailGap);
+  const dur = Math.max(0, HAPTIC.grabTailDur);
+  const tailI = HAPTIC.grabTailI;
+  if (dur < 0.02 || tailI <= 0.001) {
+    void haptics.stackImpact(HAPTIC.grabI, HAPTIC.grabS);
+    return;
+  }
+  void haptics.playPattern(
+    [
+      {
+        type: 'transient',
+        relativeTime: 0,
+        intensity: HAPTIC.grabI,
+        sharpness: HAPTIC.grabS,
+      },
+      {
+        type: 'continuous',
+        relativeTime: gap,
+        duration: dur,
+        intensity: tailI,
+        sharpness: HAPTIC.grabTailS,
+      },
+    ],
+    [
+      {
+        parameterID: 'hapticIntensity',
+        relativeTime: gap,
+        controlPoints: [
+          { relativeTime: 0, parameterValue: 1 },
+          { relativeTime: dur, parameterValue: 0 },
+        ],
+      },
+    ],
+  );
 }
 
 /**

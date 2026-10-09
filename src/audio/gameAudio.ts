@@ -22,7 +22,7 @@ function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v));
 }
 
-function play(id: 'swoosh' | 'crack', volume: number, rate: number): void {
+function play(id: 'swoosh' | 'crack' | 'tap' | 'lift' | 'drop', volume: number, rate: number): void {
   if (pluginReady()) {
     void NativeAudio.play({ id, volume, rate });
     return;
@@ -45,6 +45,21 @@ export const gameAudio = {
 
   unlock(): void {
     web.unlock();
+  },
+
+  /** 按钮按下。 */
+  tap(): void {
+    play('tap', 0.85, 1);
+  },
+
+  /** 拼放拿起一块。 */
+  lift(): void {
+    play('lift', 0.85, 1);
+  },
+
+  /** 拼放松手放下。 */
+  drop(): void {
+    play('drop', 0.85, 1);
   },
 
   /** 滑动不出声。切开仍走 crack。 */

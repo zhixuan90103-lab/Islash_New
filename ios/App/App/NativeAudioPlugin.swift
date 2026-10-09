@@ -20,6 +20,14 @@ public class NativeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
     private var crackBuf: AVAudioPCMBuffer?
     private var swooshDur: Double = 0.3
     private var wired = false
+    private let uiFiles = [
+        "tap": "sfx/paper-tap.wav",
+        "lift": "sfx/paper-lift.mp3",
+        "drop": "sfx/paper-drop.mp3",
+    ]
+    private var uiPlayers: [String: AVAudioPlayerNode] = [:]
+    private var uiSpeeds: [String: AVAudioUnitVarispeed] = [:]
+    private var uiBufs: [String: AVAudioPCMBuffer] = [:]
 
     override public func load() {
         configureSession()
@@ -50,6 +58,16 @@ public class NativeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         engine.connect(swooshVarispeed, to: engine.mainMixerNode, format: nil)
         engine.connect(crackPlayer, to: crackVarispeed, format: nil)
         engine.connect(crackVarispeed, to: engine.mainMixerNode, format: nil)
+        for id in uiFiles.keys {
+            let player = AVAudioPlayerNode()
+            let speed = AVAudioUnitVarispeed()
+            engine.attach(player)
+            engine.attach(speed)
+            engine.connect(player, to: speed, format: nil)
+            engine.connect(speed, to: engine.mainMixerNode, format: nil)
+            uiPlayers[id] = player
+            uiSpeeds[id] = speed
+        }
         wired = true
     }
 
@@ -122,6 +140,9 @@ public class NativeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
             }
         }
         if crackBuf == nil { crackBuf = loadBuffer("sfx/wood-crack.mp3") }
+        for (id, file) in uiFiles where uiBufs[id] == nil {
+            uiBufs[id] = loadBuffer(file)
+        }
         if let fmt = swooshBuf?.format {
             engine.connect(swooshPlayer, to: swooshVarispeed, format: fmt)
             engine.connect(swooshVarispeed, to: engine.mainMixerNode, format: fmt)
@@ -129,6 +150,11 @@ public class NativeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         if let fmt = crackBuf?.format {
             engine.connect(crackPlayer, to: crackVarispeed, format: fmt)
             engine.connect(crackVarispeed, to: engine.mainMixerNode, format: fmt)
+        }
+        for (id, buf) in uiBufs {
+            guard let player = uiPlayers[id], let speed = uiSpeeds[id] else { continue }
+            engine.connect(player, to: speed, format: buf.format)
+            engine.connect(speed, to: engine.mainMixerNode, format: buf.format)
         }
         startEngine()
         call.resolve(["swooshDur": swooshDur])
@@ -143,6 +169,11 @@ public class NativeAudioPlugin: CAPPlugin, CAPBridgedPlugin {
         if id == "swoosh" {
             if swooshBuf == nil { swooshBuf = loadBuffer("sfx/slash-swoosh.mp3") }
             fire(player: swooshPlayer, varispeed: swooshVarispeed, buffer: swooshBuf, volume: volume, rate: rate)
+        } else if let file = uiFiles[id] {
+            if uiBufs[id] == nil { uiBufs[id] = loadBuffer(file) }
+            if let player = uiPlayers[id], let speed = uiSpeeds[id] {
+                fire(player: player, varispeed: speed, buffer: uiBufs[id], volume: volume, rate: rate)
+            }
         } else {
             if crackBuf == nil { crackBuf = loadBuffer("sfx/wood-crack.mp3") }
             fire(player: crackPlayer, varispeed: crackVarispeed, buffer: crackBuf, volume: volume, rate: rate)
