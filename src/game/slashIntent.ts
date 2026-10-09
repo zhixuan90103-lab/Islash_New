@@ -1,5 +1,5 @@
 import type * as THREE from 'three';
-import { FLASH, INTENT, START } from './design';
+import { INTENT, START } from './design';
 import {
   chordLength,
   clipBackToEnter,
@@ -40,10 +40,9 @@ export type IntentFrame = {
   locked: boolean;
   travelRatio: number;
   speed: number;
-  earlyFlash: boolean;
   commit: CutTarget | null;
   commitFlash: boolean;
-  /** 板内路程超标，本刀将取消。 */
+  /** 刀尖已出纸，当前角度切不成。 */
   scribble: boolean;
   /** 本段未提交原因（调试）。提交成功为 commit。 */
   why: string;
@@ -80,15 +79,11 @@ function unitDir(from: DesignPoint, to: DesignPoint): { dx: number; dy: number }
 }
 
 export function resetLock(stroke: SlashStroke): void {
-  const early = stroke.intent.earlyFlashed;
   const speeds = stroke.intent.speedSamples;
   stroke.intent.locked = false;
   stroke.intent.stable = 0;
   stroke.intent.c0 = null;
   stroke.intent.c1 = null;
-  stroke.intent.flashHot = false;
-  stroke.intent.aimStable = 0;
-  stroke.intent.earlyFlashed = early;
   stroke.intent.speedSamples = speeds;
 }
 
@@ -173,28 +168,10 @@ function addInBoardPath(
   }
 }
 
-function pathTooLong(stroke: SlashStroke, straight: number): boolean {
-  if (stroke.enterLock?.dead) return true;
-  const path = stroke.enterLock?.path ?? 0;
-  const chord = Math.max(1e-4, straight);
-  if (path / chord > START.pathChordMax) {
-    if (stroke.enterLock) stroke.enterLock.dead = true;
-    return true;
-  }
-  return false;
-}
-
-function scribbleWhy(stroke: SlashStroke, straight: number): string {
-  const path = stroke.enterLock?.path ?? 0;
-  const chord = Math.max(1e-4, straight);
-  return `乱划路程 ${(path / chord).toFixed(1)}×`;
-}
-
 function endUncutAttempt(stroke: SlashStroke, meshId: number): void {
   stroke.progress.delete(meshId);
   if (stroke.enterLock?.meshId === meshId) stroke.enterLock = null;
   resetLock(stroke);
-  stroke.intent.earlyFlashed = false;
 }
 
 /** 入点已经靠近尖角时，收到这个角的中心。圆弧上的点不收。 */
@@ -349,7 +326,7 @@ export function crackAlongStroke(
   stroke: SlashStroke,
   tip: DesignPoint,
   _from?: DesignPoint,
-  speed = 0,
+  _speed = 0,
 ): { c0: DesignPoint; c1: DesignPoint } | null {
   const locked = stroke.enterLock;
   const trackedId = stroke.progress.size ? [...stroke.progress.keys()][0] : null;
@@ -373,14 +350,6 @@ export function crackAlongStroke(
     }
     if (chordLength(a, exit) < 1) return null;
     return { c0: a, c1: exit };
-  }
-
-  const dx = locked?.dirx ?? st?.dirx ?? 0;
-  const dy = locked?.diry ?? st?.diry ?? 0;
-  const fast = medianSpeed(stroke, speed) >= FLASH.crackHoldSpeed;
-  if (fast && dx * dx + dy * dy > 1e-8) {
-    const lat = Math.abs((tip.x - a.x) * dy - (tip.y - a.y) * dx);
-    if (lat > FLASH.crackLeave) return null;
   }
 
   const hit =
@@ -407,7 +376,6 @@ export function cutOnRelease(
   if (!mesh) return null;
   const proj = projectMeshHull(mesh, camera);
   if (!proj || pointInConvexHull(tip, proj.hull)) return null;
-  if (pathTooLong(stroke, chordLength(line.c0, line.c1))) return null;
   return {
     mesh,
     c0: line.c0,
@@ -466,36 +434,7 @@ export function resolveCutBySegment(
     }
     const nowInside = pointInConvexHull(b, proj.hull);
     st.inside = nowInside;
-    if (stroke.enterLock?.dead) {
-      if (!nowInside) endUncutAttempt(stroke, trackedId);
-      return note(scribbleWhy(stroke, chordLength(st.c0, clipped?.c1 ?? b)));
-    }
-    if (nowInside) {
-      const speed = medianSpeed(stroke, segmentSpeedPxPerSec(a, b, dtSec));
-      const need = endTravelNeed(speed);
-      if (need >= 0.999) return note('慢划须真出边（板内不补）');
-      const line = clipInfiniteLineToHull(st.c0, b, proj.hull);
-      if (!line) return note('青线打不出出点');
-      const exit = line[1];
-      const full = chordLength(st.c0, exit);
-      const exitEdge = closestHullEdge(exit, proj.hull);
-      if (!twoEdges(st.enterEdge, exitEdge, st.c0, exit, proj.hull)) {
-        return note(`补切同边 e${st.enterEdge}→e${exitEdge}`);
-      }
-      const ang = headingAngleDeg(
-        b.x - a.x,
-        b.y - a.y,
-        exit.x - st.c0.x,
-        exit.y - st.c0.y,
-      );
-      if (ang > FLASH.aimAngle) return note(`未对准青线 ${ang.toFixed(0)}°`);
-      const ratio = travelAlongCyan(st.c0, exit, b);
-      if (ratio < need) {
-        return note(`行程 ${(ratio * 100).toFixed(0)}% < ${(need * 100).toFixed(0)}%`);
-      }
-      if (pathTooLong(stroke, full)) return note(scribbleWhy(stroke, full));
-      return note('出点跟手，抬手才切');
-    }
+    if (nowInside) return note('纸内，抬手不切');
 
     /**
      * 真出边：微段可能跳过凸包（插值稀）。微段裁不到时用 A→刀尖无限直线出点。
@@ -518,12 +457,7 @@ export function resolveCutBySegment(
     }
     if (!twoEdges(st.enterEdge, exitEdge, c0, c1, proj.hull)) {
       endUncutAttempt(stroke, trackedId);
-      return note(`同边蹭 e${st.enterEdge}→e${exitEdge}`);
-    }
-    const straight = chordLength(c0, c1);
-    if (pathTooLong(stroke, straight)) {
-      endUncutAttempt(stroke, trackedId);
-      return note(scribbleWhy(stroke, straight));
+      return note(`取消 出纸后切不成 e${st.enterEdge}→e${exitEdge}`);
     }
     return note('出点跟手，抬手才切');
   }
@@ -551,12 +485,7 @@ export function resolveCutBySegment(
       if (!stroke.enterLock) continue;
       if (!twoEdges(enterEdge, exitEdge, c0, c1, proj.hull)) {
         endUncutAttempt(stroke, mesh.id);
-        return note(`同边蹭 e${enterEdge}→e${exitEdge}`);
-      }
-      const straight = chordLength(c0, c1);
-      if (pathTooLong(stroke, straight)) {
-        endUncutAttempt(stroke, mesh.id);
-        return note(scribbleWhy(stroke, straight));
+        return note(`取消 出纸后切不成 e${enterEdge}→e${exitEdge}`);
       }
       return note('出点跟手，抬手才切');
     }
@@ -669,47 +598,8 @@ export function stepSlashIntent(
   );
 
   const cyan = previewCutChord(meshes, camera, stroke, tip, seg[0]);
-  const lockedChord = updateSlashIntent(stroke, cyan, seg, dtSec);
-
-  let travelRatio = 0;
-  if (cyan) travelRatio = travelAlongCyan(cyan.c0, cyan.c1, tip);
-  else if (commit) travelRatio = 1;
-
-  let earlyFlash = false;
-  let commitFlash = false;
-  const scribble =
-    !!stroke.enterLock?.dead ||
-    debugWhy.startsWith('乱划路程') ||
-    (!!cyan && pathTooLong(stroke, chordLength(cyan.c0, cyan.c1)));
-
-  if (scribble) {
-    it.flashHot = false;
-    it.aimStable = 0;
-  } else if (commit) {
-    commitFlash = !it.earlyFlashed;
-  } else {
-    if (lockedChord && cyan) {
-      const ang = headingAngleDeg(
-        tip.x - seg[0].x,
-        tip.y - seg[0].y,
-        cyan.c1.x - cyan.c0.x,
-        cyan.c1.y - cyan.c0.y,
-      );
-      if (ang <= FLASH.aimAngle) it.aimStable += 1;
-      else it.aimStable = 0;
-      const aimed =
-        it.aimStable >= FLASH.aimSegs &&
-        travelRatio >= endTravelNeed(speed);
-      if (aimed) it.flashHot = true;
-    } else {
-      it.flashHot = false;
-      it.aimStable = 0;
-    }
-    if (lockedChord && it.flashHot && !it.earlyFlashed) {
-      it.earlyFlashed = true;
-      earlyFlash = true;
-    }
-  }
+  const travelRatio = cyan ? travelAlongCyan(cyan.c0, cyan.c1, tip) : 0;
+  const scribble = debugWhy.startsWith('取消');
 
   const trackedId = stroke.progress.size
     ? [...stroke.progress.keys()][0]
@@ -732,9 +622,8 @@ export function stepSlashIntent(
     locked: it.locked,
     travelRatio,
     speed,
-    earlyFlash,
     commit,
-    commitFlash,
+    commitFlash: false,
     scribble,
     why:
       debugWhy ||

@@ -80,7 +80,7 @@ npm run ios           # build + sync + 开 Xcode
 
 ## 业务怎么加
 
-- 玩法循环：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；刀：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md) + [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；打击感：[docs/SLASH-FEEL.md](docs/SLASH-FEEL.md)（入板锁 A、出板清、板心不锁；帮助指出 B；乱划 1.5 倍钉死到出板；余势拦弧线，短距离尖角才第二刀；有效刀钉到抬起）  
+- 玩法循环：[docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)；刀：[docs/SLASH-DESIGN.md](docs/SLASH-DESIGN.md) + [docs/SLASH-INTENT.md](docs/SLASH-INTENT.md)；打击感：[docs/SLASH-FEEL.md](docs/SLASH-FEEL.md)（入板锁 A、出板清、板心不锁；帮助指出 B；纸里绕路不取消，出纸后切不成才取消；余势拦弧线，短距离尖角才第二刀；有效刀钉到抬起）  
 - 保留：adapt / create-renderer / haptics / plugins / `base`  
 - 触控：整屏走刀，只对料判切；可同时按下最多 3 指，**有效刀只有一把**。指定零件轮廓齐了或步数用完，出「开始拼装」，点了才停刀，块跟着镜头回到笔记本。拼放：第一指选中并记下轮廓中心，一指拖。两指绕该中心转，位置只跟第一根手指走；慢转 1 比 1，快约 1.8 倍。停住约 0.1 秒，形状对上就用大约 0.7 秒转到和剪影同一个角度，角度再小也转。拖动过一次并松手后才出「拼装完成」，点了才计分出星。细则 [docs/CUT-PUZZLE.md](docs/CUT-PUZZLE.md)「拼放手势」。  
 - UI：只挂 `#ui-root`；进度条不显示。齿轮在切的时候出现，左边是重玩，重开这一关。画面规范 [docs/UI.md](docs/UI.md)。  

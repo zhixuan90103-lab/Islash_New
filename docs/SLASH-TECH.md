@@ -81,7 +81,7 @@ Unity 用移动的 trigger 球扫过水果。WebGPU 没有等价的每帧物理 
 | 当时 | 现在 |
 |------|------|
 | `stroke.cutDone` 整划锁死 | `slicedIds` 本划已切掉的旧块 |
-| 落刀：刀尖离开或 up | 意图提交（穿边 / 补切）立刻切 |
+| 落刀：抬手 | 刀尖已出纸且 A、B 在两条不同边上才切 |
 | 弦 = 整刀起点→刀尖 | `onMove` 微段 `lastSeg`；刀线仍是锁死的 A→出点 |
 | `tryCut(..., 'end')` | 抬手不再结算；`pointercancel` 只收该划 |
 

@@ -731,14 +731,13 @@ export async function mountSlashWorld(
         skipMeshes(stroke),
         dtSec,
       );
-      if (stroke.enterLock) {
-        if (frame.scribble) {
-          overlay.retractCrack(stroke.pointerId);
-          if (!cancelPushed.has(stroke.pointerId)) {
-            shake.pushIn();
-            cancelPushed.add(stroke.pointerId);
-          }
-        } else {
+      if (frame.scribble) {
+        overlay.retractCrack(stroke.pointerId);
+        if (!cancelPushed.has(stroke.pointerId)) {
+          shake.pushIn();
+          cancelPushed.add(stroke.pointerId);
+        }
+      } else if (stroke.enterLock) {
           overlay.allowCrack(stroke.pointerId);
           cancelPushed.delete(stroke.pointerId);
           if (frame.crack) {
@@ -748,8 +747,7 @@ export async function mountSlashWorld(
                 : wood.cuttables[0];
             inkFor(inkMesh);
             overlay.setCrack(frame.crack.c0, frame.crack.c1, stroke.pointerId);
-          } else overlay.setCrack(null, undefined, stroke.pointerId);
-        }
+          }
       }
       const onBoard =
         !frame.scribble &&
@@ -766,10 +764,6 @@ export async function mountSlashWorld(
       if (onBoard) bladeHaptics.onFrame(frame);
       else if (boardFingers.size === 0) bladeHaptics.cancel();
       if (frame.scribble) overlay.cancelFlash(stroke.pointerId);
-      else if (frame.earlyFlash) {
-        const chord = frame.crack ?? frame.cyan;
-        if (chord) overlay.flash(chord.c0, chord.c1, true, stroke.pointerId);
-      }
       overlay.setPreview(null);
       if (followBefore && !stroke.follow) {
         lastClearedLine = followBefore;
@@ -828,7 +822,7 @@ export async function mountSlashWorld(
             [prev, tip],
             0.016,
             ready,
-            !stroke.intent.earlyFlashed,
+            true,
             { c0: ready.c0, c1: ready.c1 },
           );
           if (ok) strokeCuts.push({ c0: ready.c0, c1: ready.c1 });

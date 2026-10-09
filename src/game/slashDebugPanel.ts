@@ -74,7 +74,7 @@ const INTENT_SLIDERS: SliderSpec[] = [
 ];
 
 const START_SLIDERS: SliderSpec[] = [
-  { key: 'pathChordMax', label: '乱划路程比', min: 1.2, max: 5, step: 0.1 },
+
 ];
 
 const FX_SLIDERS: SliderSpec[] = [
