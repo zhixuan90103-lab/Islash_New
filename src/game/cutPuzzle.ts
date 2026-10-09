@@ -38,8 +38,11 @@ export type CutPuzzle = {
   dispose: () => void;
   /** 按当前摆放计分并弹出星。怎么算拼完还没定，画面上先不接按钮。 */
   scorePlacement: () => void;
-  /** 蝴蝶虚线已经亮起来时，靠近竖线的竖直刀收到线上。 */
-  hintGuide: () => boolean;
+  /**
+   * 辅助线已经开始长出来时，给出它所在的纸和两个端点（纸的局部坐标）。
+   * 入点靠近某一端时收到那个端点。
+   */
+  hintGuide: () => { mesh: THREE.Mesh; ax: number; ay: number; bx: number; by: number } | null;
 };
 
 function polyArea(poly: Poly2[]): number {
@@ -2153,8 +2156,12 @@ export function createCutPuzzle(opts: {
     canCut: () => phase === 'cut' && stepsLeft > 0,
     cuts: () => cuts,
     level: () => level,
-    /** 蝴蝶辅助线已经开始长出来，刀可以轻轻贴上去。 */
-    hintGuide: () => level === 'butterfly' && hintLine.visible && hintT >= 0.24,
+    /** 辅助线已经开始长出来。入点靠近某一端时收到那个端点。 */
+    hintGuide: () => {
+      const mesh = hintLine.parent;
+      if (!hintLine.visible || hintT < 0.24 || !hintSeg || !(mesh instanceof THREE.Mesh)) return null;
+      return { mesh, ax: hintSeg.ax, ay: hintSeg.ay, bx: hintSeg.bx, by: hintSeg.by };
+    },
     forget,
     sheetScale: () => PATTERN_FIT * shade[level].size,
     attachSheet: (mesh: THREE.Mesh) => {

@@ -669,22 +669,25 @@ export async function mountSlashWorld(
     });
   };
 
-  const pullHint = (p: DesignPoint, prev: DesignPoint | null): DesignPoint => {
-    if (!puzzle.hintGuide()) return p;
-    const mesh = wood.cuttables.find((m) => m.userData.puzzleRole === 'stock');
-    if (!mesh) return p;
-    const local = designToLocalXY(p, camera, mesh);
-    if (!local || Math.abs(local.x) > 0.18) return p;
-    if (prev) {
-      const before = designToLocalXY(prev, camera, mesh);
-      if (before) {
-        const dx = local.x - before.x;
-        const dy = local.y - before.y;
-        if (Math.abs(dx) > Math.abs(dy) * 0.9) return p;
-      }
-    }
-    const pulled = localXYToDesign(mesh, camera, local.x * 0.58, local.y);
-    return pulled ?? p;
+  const HINT_BAND = 0.06;
+
+  /** 入点已经靠近辅助线某一端时，收到那个端点。滑动过程不改。 */
+  const snapEnterToHint = (stroke: SlashStroke) => {
+    const lock = stroke.enterLock;
+    const guide = puzzle.hintGuide();
+    if (!lock || !guide || lock.meshId !== guide.mesh.id) return;
+    const da = Math.hypot(lock.localX - guide.ax, lock.localY - guide.ay);
+    const db = Math.hypot(lock.localX - guide.bx, lock.localY - guide.by);
+    if (Math.min(da, db) > HINT_BAND) return;
+    const end = da <= db ? { x: guide.ax, y: guide.ay } : { x: guide.bx, y: guide.by };
+    if (da <= 1e-4 || db <= 1e-4) return;
+    const at = localXYToDesign(guide.mesh, camera, end.x, end.y);
+    if (!at) return;
+    lock.localX = end.x;
+    lock.localY = end.y;
+    lock.c0 = at;
+    const prog = stroke.progress.get(lock.meshId);
+    if (prog) prog.c0 = { x: at.x, y: at.y };
   };
 
   const input = createSlashInput(stage, getLayout, {
@@ -699,10 +702,6 @@ export async function mountSlashWorld(
     },
     onTip: (stroke, p) => {
       if (puzzle.phase() !== 'cut') return;
-      const prev = stroke.points.length >= 2 ? stroke.points[stroke.points.length - 2] : null;
-      const q = pullHint(p, prev);
-      p.x = q.x;
-      p.y = q.y;
       if (syncTrails(stroke)) {
         overlay.ensureTrail(stroke.pointerId);
         overlay.push(stroke.pointerId, p);
@@ -731,6 +730,8 @@ export async function mountSlashWorld(
         skipMeshes(stroke),
         dtSec,
       );
+      snapEnterToHint(stroke);
+      if (frame.crack && stroke.enterLock) frame.crack.c0 = stroke.enterLock.c0;
       if (frame.scribble) {
         overlay.retractCrack(stroke.pointerId);
         if (!cancelPushed.has(stroke.pointerId)) {
