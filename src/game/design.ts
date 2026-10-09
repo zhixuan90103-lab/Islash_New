@@ -539,6 +539,12 @@ export const HAPTIC = {
   cutS1: 0.5,
   /** 完成切割时切开瞬态强度倍率。 */
   finishMul: 1.5,
+  /** 按钮点下去且这次真的生效。 */
+  tapI: 0.45,
+  tapS: 0.65,
+  /** 拼放第一次拿起。接近入刀强度，锐度更低。拖动和松手不震。 */
+  grabI: 0.4,
+  grabS: 0.2,
 };
 
 export const HAPTIC_DEFAULT = { ...HAPTIC };

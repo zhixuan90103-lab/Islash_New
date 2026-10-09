@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { NOTEBOOK, PAPER, PUZZLE, puzzleCutX, TRAIL, VIEW } from './design';
+import { HAPTIC, NOTEBOOK, PAPER, PUZZLE, puzzleCutX, TRAIL, VIEW } from './design';
 import { type Poly2 } from './woodProfile';
 import { createChamferedSolid } from './woodChamfer';
 import {
@@ -16,6 +16,7 @@ import {
 import { BUTTERFLY, butterflyBody, butterflyEyes, butterflyParts, type ButterflyPart } from './butterflyLevel';
 import { FISH, fishGuide, fishParts, type FishPart } from './fishLevel';
 import type { SlashPhysics } from './slashPhysics';
+import { grabPiece, tapButton } from './slashHaptics';
 
 export type PuzzlePhase = 'show' | 'pan' | 'peek' | 'cut' | 'carry' | 'place' | 'inspect' | 'score';
 
@@ -1022,6 +1023,7 @@ export function createCutPuzzle(opts: {
     toggle.addEventListener('pointerdown', (ev) => {
       ev.stopPropagation();
       panel.hidden = !panel.hidden;
+      tapButton();
     });
     const addRange = (
       label: string,
@@ -1071,6 +1073,13 @@ export function createCutPuzzle(opts: {
       if (colorInputs.cover) colorInputs.cover.value = look.cover;
       if (colorInputs.page) colorInputs.page.value = look.page;
     };
+    const hapticTitle = document.createElement('div');
+    hapticTitle.textContent = '震动';
+    panel.append(hapticTitle);
+    addRange('按钮强度', () => HAPTIC.tapI, (n) => { HAPTIC.tapI = n; }, 0, 1, 0.01, false);
+    addRange('按钮锐度', () => HAPTIC.tapS, (n) => { HAPTIC.tapS = n; }, 0, 1, 0.01, false);
+    addRange('拿起强度', () => HAPTIC.grabI, (n) => { HAPTIC.grabI = n; }, 0, 1, 0.01, false);
+    addRange('拿起锐度', () => HAPTIC.grabS, (n) => { HAPTIC.grabS = n; }, 0, 1, 0.01, false);
     addRange('外皮边', () => look.rim, (n) => { look.rim = n; }, 0.02, 0.22);
     addRange('线圈边', () => look.spine, (n) => { look.spine = n; }, 0.08, 0.42);
     addRange('外皮厚', () => look.coverDepth, (n) => { look.coverDepth = n; }, 0.04, 0.24);
@@ -1564,6 +1573,7 @@ export function createCutPuzzle(opts: {
       return;
     }
     undoLeft -= 1;
+    tapButton();
     if (op.kind === 'pose') {
       op.mesh.position.copy(op.p);
       op.mesh.quaternion.copy(op.q);
@@ -1650,8 +1660,13 @@ export function createCutPuzzle(opts: {
   hit.addEventListener('pointerdown', (ev) => {
     ev.preventDefault();
     ev.stopPropagation();
-    if (phase === 'cut' && buttonLatched) beginInstall();
-    else if (phase === 'place') finishPlace();
+    if (phase === 'cut' && buttonLatched) {
+      tapButton();
+      beginInstall();
+    } else if (phase === 'place' && placeDragged) {
+      tapButton();
+      finishPlace();
+    }
   });
 
   const startPeek = () => {
@@ -1712,6 +1727,7 @@ export function createCutPuzzle(opts: {
   };
   replaySide?.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
+    tapButton();
     leaveScore(false);
   });
   previewBtn.addEventListener('pointerdown', (ev) => {
@@ -1724,6 +1740,7 @@ export function createCutPuzzle(opts: {
       paintTools();
       return;
     }
+    tapButton();
     paintTools();
     if (ev.pointerId != null) previewBtn.setPointerCapture(ev.pointerId);
   });
@@ -1738,11 +1755,13 @@ export function createCutPuzzle(opts: {
   replayBtn.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
     if (phase !== 'score') return;
+    tapButton();
     leaveScore(false);
   });
   nextBtn.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
     if (phase !== 'score') return;
+    tapButton();
     leaveScore(true);
   });
   goalEl.ownerDocument.addEventListener('pointerdown', (ev) => {
@@ -1760,6 +1779,7 @@ export function createCutPuzzle(opts: {
       hintLeft -= 1;
       hintOn = true;
     }
+    tapButton();
     hintT = hintOn && (level === 'butterfly' || level === 'turtle' || level === 'fish') ? 0 : -1;
     if (hintT === 0) poseHint(0);
     paintTools();
@@ -2131,6 +2151,7 @@ export function createCutPuzzle(opts: {
     }
     if (!mesh) return;
     held = mesh;
+    grabPiece();
     mesh.updateMatrixWorld(true);
     const poly = worldPoly(mesh);
     const c = poly.length >= 3 ? areaCentroid(poly) : { x: mesh.position.x, y: mesh.position.y };
@@ -2166,6 +2187,7 @@ export function createCutPuzzle(opts: {
       const mesh = pickFrag(at.x, at.y);
       if (mesh) {
         held = mesh;
+        grabPiece();
         primaryId = e.pointerId;
         lockCenter(mesh);
         pose0 = { mesh, p: mesh.position.clone(), q: mesh.quaternion.clone() };

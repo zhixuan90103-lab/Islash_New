@@ -2,6 +2,16 @@ import { HAPTIC, bladeSpeedScale } from './design';
 import type { IntentFrame } from './slashIntent';
 import { haptics } from '../utils/haptics';
 
+/** 按钮这次按下真的做了事。 */
+export function tapButton(): void {
+  void haptics.stackImpact(HAPTIC.tapI, HAPTIC.tapS);
+}
+
+/** 拼放第一次拿起一块。第二指、拖动、松手不打。 */
+export function grabPiece(): void {
+  void haptics.stackImpact(HAPTIC.grabI, HAPTIC.grabS);
+}
+
 /**
  * 一刀触觉：锁 A 轻击 + 弱持续（渐起）→ 切开重击。
  * 走廊余势 / 失败 / 抬手只停持续。

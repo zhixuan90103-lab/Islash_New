@@ -49,6 +49,8 @@ hit    = clamp(speedK * sizeK, SHAKE.floor, 1)
 | cutI0 / cutI1 | 0.4 / 0.65 | 切开瞬态强度（随刀速） |
 | cutS0 / cutS1 | 0.3 / 0.5 | 切开瞬态锐度 |
 | finishMul | 1.5 | 终刀切开强度倍率 |
+| tapI / tapS | 0.45 / 0.65 | 按钮这次按下真的生效 |
+| grabI / grabS | 0.4 / 0.2 | 拼放第一次拿起。拖动和松手不震 |
 
 ## 时间轴（一刀）
 
