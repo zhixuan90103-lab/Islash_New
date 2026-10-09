@@ -363,7 +363,17 @@ export function crackAlongStroke(
   const a =
     syncLockedA(stroke, mesh, camera, proj.hull) ?? locked?.c0 ?? st?.c0;
   if (!a) return null;
-  if (!pointInConvexHull(tip, proj.hull)) return null;
+  if (stroke.enterLock?.dead) return null;
+  if (!pointInConvexHull(tip, proj.hull)) {
+    const line = clipInfiniteLineToHull(a, tip, proj.hull);
+    if (!line) return null;
+    const exit = line[1];
+    if (!twoEdges(stroke.enterLock?.enterEdge ?? st?.enterEdge ?? -1, closestHullEdge(exit, proj.hull), a, exit, proj.hull)) {
+      return null;
+    }
+    if (chordLength(a, exit) < 1) return null;
+    return { c0: a, c1: exit };
+  }
 
   const dx = locked?.dirx ?? st?.dirx ?? 0;
   const dy = locked?.diry ?? st?.diry ?? 0;
@@ -379,6 +389,32 @@ export function crackAlongStroke(
     return { c0: a, c1: hit.c1 };
   }
   return null;
+}
+
+/** 抬手时的那一刀。纸外才成立：出点是 A 穿过刀尖打到对面边上的交点。 */
+export function cutOnRelease(
+  meshes: THREE.Mesh[],
+  camera: THREE.Camera,
+  stroke: SlashStroke,
+  tip: DesignPoint,
+): CutTarget | null {
+  const line = crackAlongStroke(meshes, camera, stroke, tip);
+  if (!line) return null;
+  const trackedId = stroke.progress.size ? [...stroke.progress.keys()][0] : null;
+  const mesh =
+    (trackedId != null ? meshes.find((m) => m.id === trackedId) : undefined) ??
+    meshes.find((m) => !stroke.slicedIds.has(m.id));
+  if (!mesh) return null;
+  const proj = projectMeshHull(mesh, camera);
+  if (!proj || pointInConvexHull(tip, proj.hull)) return null;
+  if (pathTooLong(stroke, chordLength(line.c0, line.c1))) return null;
+  return {
+    mesh,
+    c0: line.c0,
+    c1: line.c1,
+    chord: chordLength(line.c0, line.c1),
+    enterEdge: stroke.enterLock?.enterEdge ?? -1,
+  };
 }
 
 export function resolveCutBySegment(
@@ -458,15 +494,7 @@ export function resolveCutBySegment(
         return note(`行程 ${(ratio * 100).toFixed(0)}% < ${(need * 100).toFixed(0)}%`);
       }
       if (pathTooLong(stroke, full)) return note(scribbleWhy(stroke, full));
-      stroke.progress.delete(trackedId);
-      debugWhy = 'commit 板内补切';
-      return {
-        mesh,
-        c0: st.c0,
-        c1: exit,
-        chord: Math.max(st.chord, full),
-        enterEdge: st.enterEdge,
-      };
+      return note('出点跟手，抬手才切');
     }
 
     /**
@@ -497,15 +525,7 @@ export function resolveCutBySegment(
       endUncutAttempt(stroke, trackedId);
       return note(scribbleWhy(stroke, straight));
     }
-    stroke.progress.delete(trackedId);
-    debugWhy = 'commit 真出边';
-    return {
-      mesh,
-      c0,
-      c1,
-      chord: Math.max(st.chord, straight),
-      enterEdge: st.enterEdge,
-    };
+    return note('出点跟手，抬手才切');
   }
 
   for (const mesh of live) {
@@ -538,15 +558,7 @@ export function resolveCutBySegment(
         endUncutAttempt(stroke, mesh.id);
         return note(scribbleWhy(stroke, straight));
       }
-      stroke.progress.delete(mesh.id);
-      debugWhy = 'commit 真出边';
-      return {
-        mesh,
-        c0,
-        c1,
-        chord: straight,
-        enterEdge: stroke.enterLock.enterEdge,
-      };
+      return note('出点跟手，抬手才切');
     }
 
     if (insideB && (fromOutside || outside) && clipped) {

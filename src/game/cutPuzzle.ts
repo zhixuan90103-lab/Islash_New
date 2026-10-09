@@ -854,18 +854,29 @@ export function createCutPuzzle(opts: {
   hintBtn.setAttribute('aria-label', '提示');
 
   const hintMat = new THREE.LineDashedMaterial({
-    color: 0xffffff,
+    color: 0x333333,
     dashSize: 0.07,
     gapSize: 0.05,
+    transparent: true,
+    opacity: 0.3,
     toneMapped: false,
   });
   const hintLine = new THREE.LineSegments(new THREE.BufferGeometry(), hintMat);
   hintLine.visible = false;
   hintLine.renderOrder = 4;
-  const hintDotGeo = new THREE.CircleGeometry(0.026, 24);
-  const hintDotMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+  const hintDotGeo = new THREE.CircleGeometry(0.026 * 0.7, 24);
+  const hintDotMat = new THREE.MeshBasicMaterial({
+    color: 0x333333,
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false,
+    toneMapped: false,
+  });
   const hintBandMat = new THREE.MeshBasicMaterial({
-    color: 0xffffff,
+    color: 0x333333,
+    transparent: true,
+    opacity: 0.3,
+    depthWrite: false,
     toneMapped: false,
     depthTest: true,
     side: THREE.DoubleSide,

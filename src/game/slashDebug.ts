@@ -126,6 +126,8 @@ export function createSlashOverlay(stage: HTMLElement): {
   ) => void;
   /** 料的颜色：屏上一点落在这块纸的哪一侧。夹缝再单独加深。 */
   setSheetInk: (ink: ((p: DesignPoint) => [number, number, number]) | null) => void;
+  /** 一个世界单位在设计舞台上占多少像素，用来把提示的圆点和虚线对齐到屏幕。 */
+  setUnit: (pxPerWorld: number) => void;
   retractCrack: (ownerId: number) => void;
   allowCrack: (ownerId: number) => void;
   setPredicted: (pointerId: number, points: DesignPoint[]) => void;
@@ -177,6 +179,7 @@ export function createSlashOverlay(stage: HTMLElement): {
     w1: number;
   } | null = null;
   let crackDraw = 1;
+  let pxPerWorld = 220;
   let crackHeldOff = false;
   let crackOwner: number | null = null;
   let intentDebug: IntentDebug | null = null;
@@ -237,33 +240,29 @@ export function createSlashOverlay(stage: HTMLElement): {
       const dx = crack.c1.x - crack.c0.x;
       const dy = crack.c1.y - crack.c0.y;
       const len = Math.hypot(dx, dy);
+      const dotR = 0.026 * pxPerWorld;
+      const alpha = crackDraw;
+      ctx.save();
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+      ctx.beginPath();
+      ctx.arc(crack.c0.x, crack.c0.y, dotR, 0, Math.PI * 2);
+      ctx.fill();
       if (len >= 1) {
-        const nx = -dy / len;
-        const ny = dx / len;
-        const liveW = Math.min(
-          FLASH.crackWMax,
-          FLASH.crackW0 + len * FLASH.crackGrow,
-        );
-        const w0 = (crackRetract?.w0 ?? liveW * 0.5) * crackDraw;
-        const w1 = (crackRetract?.w1 ?? FLASH.crackW * 0.5) * crackDraw;
-        ctx.save();
-        ctx.shadowBlur = 0;
-        const a0 = paperRgb(crack.c0).map((v) => Math.round(v * FLASH.crackDarken));
-        const a1 = paperRgb(crack.c1).map((v) => Math.round(v * FLASH.crackDarken));
-        const fade = FLASH.crackAlpha * crackDraw;
-        const paint = ctx.createLinearGradient(crack.c0.x, crack.c0.y, crack.c1.x, crack.c1.y);
-        paint.addColorStop(0, `rgba(${a0[0]}, ${a0[1]}, ${a0[2]}, ${fade})`);
-        paint.addColorStop(1, `rgba(${a1[0]}, ${a1[1]}, ${a1[2]}, ${fade})`);
-        ctx.fillStyle = paint;
+        ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+        ctx.lineWidth = 0.013 * pxPerWorld;
+        ctx.lineCap = 'butt';
+        ctx.setLineDash([0.08 * pxPerWorld, 0.045 * pxPerWorld]);
         ctx.beginPath();
-        ctx.moveTo(crack.c0.x + nx * w0, crack.c0.y + ny * w0);
-        ctx.lineTo(crack.c1.x + nx * w1, crack.c1.y + ny * w1);
-        ctx.lineTo(crack.c1.x - nx * w1, crack.c1.y - ny * w1);
-        ctx.lineTo(crack.c0.x - nx * w0, crack.c0.y - ny * w0);
-        ctx.closePath();
+        ctx.moveTo(crack.c0.x, crack.c0.y);
+        ctx.lineTo(crack.c1.x, crack.c1.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(crack.c1.x, crack.c1.y, dotR, 0, Math.PI * 2);
         ctx.fill();
-        ctx.restore();
       }
+      ctx.restore();
     }
 
     const drawFlash = (
@@ -555,6 +554,10 @@ export function createSlashOverlay(stage: HTMLElement): {
     /* 刀光改为一次性扫过，不再钉在切缝上。 */
   };
 
+  const setUnit = (next: number) => {
+    if (next > 1) pxPerWorld = next;
+  };
+
   const setCrack = (
     c0: DesignPoint | null,
     c1?: DesignPoint,
@@ -738,6 +741,7 @@ export function createSlashOverlay(stage: HTMLElement): {
     push,
     setPreview,
     setCrack,
+    setUnit,
     setSheetInk,
     retractCrack,
     allowCrack,

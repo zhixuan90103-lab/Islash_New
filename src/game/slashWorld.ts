@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { DESIGN_HEIGHT } from '../adapt/design';
 import { applyBladeImpulse, pieceVolume } from './bladeForce';
 import { boardCutProgress, CUT, FINALE, FX, PAPER, puzzleCutX, SHAKE, WOOD } from './design';
 import { createCutPuzzle } from './cutPuzzle';
@@ -10,6 +11,7 @@ import { createScreenShake, cutHit } from './screenShake';
 import type { PhysBody } from './slashPhysics';
 import {
   crackAlongStroke,
+  cutOnRelease,
   resetSlashIntent,
   stepSlashIntent,
 } from './slashIntent';
@@ -760,30 +762,13 @@ export async function mountSlashWorld(
           segmentSpeedPxPerSec(lastSeg[0], lastSeg[1], dtSec),
         );
       }
-      let meshFailNow = false;
-      if (frame.commit) {
-        const ok = applyCommit(
-          stroke,
-          lastSeg,
-          dtSec,
-          frame.commit,
-          frame.commitFlash,
-          frame.crack,
-        );
-        if (!ok) {
-          meshFailNow = true;
-          if (boardFingers.size === 0) bladeHaptics.cancel();
-        } else {
-          strokeCuts.push({ c0: frame.commit.c0, c1: frame.commit.c1 });
-        }
-      } else {
-        if (onBoard) bladeHaptics.onFrame(frame);
-        else if (boardFingers.size === 0) bladeHaptics.cancel();
-        if (frame.scribble) overlay.cancelFlash(stroke.pointerId);
-        else if (frame.earlyFlash) {
-          const chord = frame.crack ?? frame.cyan;
-          if (chord) overlay.flash(chord.c0, chord.c1, true, stroke.pointerId);
-        }
+      const meshFailNow = false;
+      if (onBoard) bladeHaptics.onFrame(frame);
+      else if (boardFingers.size === 0) bladeHaptics.cancel();
+      if (frame.scribble) overlay.cancelFlash(stroke.pointerId);
+      else if (frame.earlyFlash) {
+        const chord = frame.crack ?? frame.cyan;
+        if (chord) overlay.flash(chord.c0, chord.c1, true, stroke.pointerId);
       }
       overlay.setPreview(null);
       if (followBefore && !stroke.follow) {
@@ -833,6 +818,22 @@ export async function mountSlashWorld(
     },
     onEnd: (stroke) => {
       cucumberClip.hide();
+      if (stroke && stroke.points.length > 0) {
+        const tip = stroke.points[stroke.points.length - 1];
+        const prev = stroke.points[stroke.points.length - 2] ?? tip;
+        const ready = cutOnRelease(wood.cuttables.slice(), camera, stroke, tip);
+        if (ready) {
+          const ok = applyCommit(
+            stroke,
+            [prev, tip],
+            0.016,
+            ready,
+            !stroke.intent.earlyFlashed,
+            { c0: ready.c0, c1: ready.c1 },
+          );
+          if (ok) strokeCuts.push({ c0: ready.c0, c1: ready.c1 });
+        }
+      }
       if (stroke) {
         boardFingers.delete(stroke.pointerId);
         cancelPushed.delete(stroke.pointerId);
@@ -902,6 +903,12 @@ export async function mountSlashWorld(
         submitAfterFly = false;
         puzzle.requestInstall();
       }
+      const depth = Math.max(0.2, camera.position.z);
+      const worldH = 2 * depth * Math.tan((camera.fov * Math.PI) / 360);
+      const sheet = wood.cuttables.find((m) => m.userData.puzzleRole === 'stock')
+        ?? wood.cuttables[0];
+      const fit = sheet?.scale.x || 1;
+      overlay.setUnit((DESIGN_HEIGHT / worldH) * fit);
       overlay.step();
       for (let i = pendingFly.length - 1; i >= 0; i--) {
         const p = pendingFly[i];
@@ -928,32 +935,6 @@ export async function mountSlashWorld(
         if (enter.t >= 1) enter = null;
       }
       physics.step(slowing ? dt * FINALE.scale : dt);
-      const liveStroke = input
-        .strokes()
-        .find((s) => s.enterLock && s.points.length >= 2);
-      if (liveStroke) {
-        const tip = liveStroke.points[liveStroke.points.length - 1];
-        const from = liveStroke.points[liveStroke.points.length - 2];
-        const crack = crackAlongStroke(
-          wood.cuttables,
-          camera,
-          liveStroke,
-          tip,
-          from,
-        );
-        if (crack) {
-          const tracked = [...liveStroke.progress.keys()][0];
-          const inkMesh =
-            (tracked != null
-              ? wood.cuttables.find((m) => m.id === tracked)
-              : undefined) ??
-            wood.cuttables.find((m) => !liveStroke.slicedIds.has(m.id));
-          inkFor(inkMesh);
-          overlay.setCrack(crack.c0, crack.c1, liveStroke.pointerId);
-        } else overlay.setCrack(null, undefined, liveStroke.pointerId);
-      } else {
-        overlay.setCrack(null);
-      }
       for (const p of pendingFly) {
         p.keep.position.copy(p.keepRest).add(p.squeeze);
         p.drop.position.copy(p.dropRest).addScaledVector(p.squeeze, -1);
