@@ -238,6 +238,55 @@ function pointInPoly(x: number, y: number, poly: Poly2[]): boolean {
   return inside;
 }
 
+function segDist(ax: number, ay: number, bx: number, by: number, cx: number, cy: number, dx: number, dy: number): number {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const cdx = dx - cx;
+  const cdy = dy - cy;
+  const acx = cx - ax;
+  const acy = cy - ay;
+  const a = abx * abx + aby * aby;
+  const b = abx * cdx + aby * cdy;
+  const c = cdx * cdx + cdy * cdy;
+  const d = abx * acx + aby * acy;
+  const e = cdx * acx + cdy * acy;
+  const den = a * c - b * b;
+  let s = den < 1e-8 ? 0 : Math.max(0, Math.min(1, (b * e - c * d) / den));
+  let t = c < 1e-8 ? 0 : Math.max(0, Math.min(1, (b * s + e) / c));
+  s = a < 1e-8 ? 0 : Math.max(0, Math.min(1, (b * t - d) / a));
+  const px = ax + abx * s - (cx + cdx * t);
+  const py = ay + aby * s - (cy + cdy * t);
+  return Math.hypot(px, py);
+}
+
+/** 两指连线到这块轮廓的距离。连线穿过轮廓时是 0。 */
+function chordDist(a: { x: number; y: number }, b: { x: number; y: number }, poly: Poly2[]): number {
+  if (pointInPoly(a.x, a.y, poly) || pointInPoly(b.x, b.y, poly)) return 0;
+  let best = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    best = Math.min(best, segDist(a.x, a.y, b.x, b.y, poly[j].x, poly[j].y, poly[i].x, poly[i].y));
+  }
+  return best;
+}
+
+/** 点在轮廓内时，到边界的距离。越深越不像误触。 */
+function insideDepth(x: number, y: number, poly: Poly2[]): number {
+  if (!pointInPoly(x, y, poly)) return 0;
+  let best = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const ax = poly[j].x;
+    const ay = poly[j].y;
+    const bx = poly[i].x;
+    const by = poly[i].y;
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy;
+    const t = len2 < 1e-8 ? 0 : Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / len2));
+    best = Math.min(best, Math.hypot(ax + dx * t - x, ay + dy * t - y));
+  }
+  return best;
+}
+
 function worldPoly(mesh: THREE.Mesh): Poly2[] {
   const raw = (mesh.userData.profile as Poly2[] | undefined) ?? [];
   const e = mesh.matrixWorld.elements;
@@ -1837,6 +1886,7 @@ export function createCutPuzzle(opts: {
     let dA = ang - pair.ang;
     if (dA > Math.PI) dA -= Math.PI * 2;
     if (dA < -Math.PI) dA += Math.PI * 2;
+    dA *= 2;
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
     const ox = held.position.x - pair.x;
@@ -2034,6 +2084,73 @@ export function createCutPuzzle(opts: {
     return best;
   };
 
+  /** 两指都没按进轮廓时，连线离这块大约一根指腹以内，就当作要拿它。 */
+  const FINGER_PAD = 0.18;
+  /** 比这更浅的按到，当成第二指擦过边缘，不拿来换目标。 */
+  const GRAZE = 0.06;
+  const holdFromFingers = () => {
+    if (held || fingers.size < 2) return;
+    const pts = [...fingers.entries()];
+    let mesh: THREE.Mesh | null = null;
+    let insideId: number | null = null;
+    const firstHit = pickFrag(pts[0][1].x, pts[0][1].y);
+    if (firstHit) {
+      mesh = firstHit;
+      insideId = pts[0][0];
+    } else {
+      for (const [id, p] of pts.slice(1)) {
+        const hit = pickFrag(p.x, p.y);
+        if (!hit) continue;
+        hit.updateMatrixWorld(true);
+        if (insideDepth(p.x, p.y, worldPoly(hit)) < GRAZE) continue;
+        mesh = hit;
+        insideId = id;
+        break;
+      }
+    }
+    if (!mesh) {
+      let bestDist = FINGER_PAD;
+      let bestArea = Infinity;
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 1; j < pts.length; j++) {
+          for (const frag of frags) {
+            frag.updateMatrixWorld(true);
+            const poly = worldPoly(frag);
+            if (poly.length < 3) continue;
+            const dist = chordDist(pts[i][1], pts[j][1], poly);
+            if (dist > FINGER_PAD) continue;
+            const area = polyArea(poly);
+            if (dist < bestDist - 1e-4 || (Math.abs(dist - bestDist) <= 1e-4 && area < bestArea)) {
+              bestDist = dist;
+              bestArea = area;
+              mesh = frag;
+            }
+          }
+        }
+      }
+    }
+    if (!mesh) return;
+    held = mesh;
+    mesh.updateMatrixWorld(true);
+    const poly = worldPoly(mesh);
+    const c = poly.length >= 3 ? areaCentroid(poly) : { x: mesh.position.x, y: mesh.position.y };
+    let primary = insideId ?? pts[0][0];
+    if (insideId == null) {
+      let near = Infinity;
+      for (const [id, p] of pts) {
+        const d = (p.x - c.x) ** 2 + (p.y - c.y) ** 2;
+        if (d < near) {
+          near = d;
+          primary = id;
+        }
+      }
+    }
+    primaryId = primary;
+    lockCenter(mesh);
+    pose0 = { mesh, p: mesh.position.clone(), q: mesh.quaternion.clone() };
+    liftPiece(mesh);
+  };
+
   const onPlaceDown = (e: PointerEvent) => {
     if (phase !== 'place' || e.button !== 0) return;
     const target = e.target;
@@ -2047,29 +2164,29 @@ export function createCutPuzzle(opts: {
     e.preventDefault();
     if (!held) {
       const mesh = pickFrag(at.x, at.y);
-      if (!mesh) {
-        if (fingers.size < 2) fingers.delete(e.pointerId);
-        return;
-      }
-      held = mesh;
-      primaryId = e.pointerId;
-      lockCenter(mesh);
-      pose0 = {
-        mesh,
-        p: mesh.position.clone(),
-        q: mesh.quaternion.clone(),
-      };
-      liftPiece(mesh);
+      if (mesh) {
+        held = mesh;
+        primaryId = e.pointerId;
+        lockCenter(mesh);
+        pose0 = { mesh, p: mesh.position.clone(), q: mesh.quaternion.clone() };
+        liftPiece(mesh);
+      } else holdFromFingers();
     }
     armPair();
   };
 
   const onPlaceMove = (e: PointerEvent) => {
     const prev = fingers.get(e.pointerId);
-    if (!prev || !held) return;
+    if (!prev) return;
     const at = worldOnPlane(e);
     if (!at) return;
     fingers.set(e.pointerId, at);
+    if (!held) {
+      holdFromFingers();
+      if (!held) return;
+      armPair();
+      return;
+    }
     const pts = twoFingers();
     if (pts && pair) {
       aim = null;
