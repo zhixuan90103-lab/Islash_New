@@ -1872,26 +1872,34 @@ export function createCutPuzzle(opts: {
   let handTuned: THREE.Mesh | null = null;
   let dwell: { t: number; partId: string } | null = null;
 
-  const slotOf = (mesh: THREE.Mesh) => {
+  const intoShade = () => {
     shadePivot.updateMatrixWorld(true);
-    const into = shadePivot.matrixWorld.clone().invert();
+    return shadePivot.matrixWorld.clone().invert();
+  };
+  const polyInShade = (mesh: THREE.Mesh, into: THREE.Matrix4) => {
     mesh.updateMatrixWorld(true);
-    const poly = worldPoly(mesh).map((p) => {
+    return worldPoly(mesh).map((p) => {
       _hit.set(p.x, p.y, 0).applyMatrix4(into);
       return { x: _hit.x, y: _hit.y };
     });
-    const c = poly.length >= 3 ? areaCentroid(poly) : { x: 0, y: 0 };
-    return { poly, c };
   };
-
+  /** 画面上这块阴影的轮廓。含乌龟每块自己的平移和缩放，不拿没挪过的设计稿。 */
+  const livePartPoly = (id: string, fallback: Poly2[], into: THREE.Matrix4) => {
+    const mesh = slots.get(id);
+    if (!mesh) return fallback;
+    const poly = polyInShade(mesh, into);
+    return poly.length >= 3 ? poly : fallback;
+  };
   const tickAim = (dt: number) => {
     if (phase !== 'place' || !held || fingers.size !== 1) {
       aim = null;
       dwell = null;
       return;
     }
-    const { poly, c } = slotOf(held);
-    const covered = parts.filter((part) => pointInPoly(c.x, c.y, part.poly));
+    const into = intoShade();
+    const poly = polyInShade(held, into);
+    const c = poly.length >= 3 ? areaCentroid(poly) : { x: 0, y: 0 };
+    const covered = parts.filter((part) => pointInPoly(c.x, c.y, livePartPoly(part.id, part.poly, into)));
     if (aim) {
       const stay = covered.length === 1 && covered[0].id === aim.partId;
       if (!stay) {
@@ -1913,7 +1921,7 @@ export function createCutPuzzle(opts: {
     }
     if (aimDone && aimDone.mesh === held) {
       const stay = parts.find((p) => p.id === aimDone!.partId);
-      if (!stay || !pointInPoly(c.x, c.y, stay.poly)) aimDone = null;
+      if (!stay || !pointInPoly(c.x, c.y, livePartPoly(stay.id, stay.poly, into))) aimDone = null;
     }
     if (handTuned === held) {
       if (covered.length === 0) handTuned = null;
@@ -1931,11 +1939,12 @@ export function createCutPuzzle(opts: {
     dwell.t += dt;
     if (dwell.t < AIM_DWELL || aimDone?.mesh === held) return;
     const part = covered[0];
+    const slot = livePartPoly(part.id, part.poly, into);
     const area = polyArea(poly);
-    const slotArea = polyArea(part.poly);
+    const slotArea = polyArea(slot);
     const ratio = slotArea > 1e-6 ? area / slotArea : 0;
     if (ratio < 0.6 || ratio > 1.5) return;
-    const fit = headTurn(poly, part.poly);
+    const fit = headTurn(poly, slot);
     if (!fit) return;
     aim = {
       total: fit.turn,
@@ -1952,8 +1961,10 @@ export function createCutPuzzle(opts: {
 
   const noteHandTurn = (dA: number) => {
     if (!held || Math.abs(dA) <= 1e-4) return;
-    const { c } = slotOf(held);
-    const covered = parts.filter((part) => pointInPoly(c.x, c.y, part.poly));
+    const into = intoShade();
+    const outline = polyInShade(held, into);
+    const c = outline.length >= 3 ? areaCentroid(outline) : { x: 0, y: 0 };
+    const covered = parts.filter((part) => pointInPoly(c.x, c.y, livePartPoly(part.id, part.poly, into)));
     if (covered.length === 1) aimDone = { mesh: held, partId: covered[0].id };
     handTuned = held;
   };
