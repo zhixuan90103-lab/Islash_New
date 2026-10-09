@@ -70,7 +70,7 @@ HUD 状态行有 `plugin: true/false`。`false` = 仍在默认 `CAPBridgeViewCon
 | 方板 / 双槽六边形 | `wood.spawnSquare` · `cutPuzzle.ts` · `createChamferedSolid` |
 | 圆柱 3D | `src/game/solid3d.ts` · `CYL` |
 | 圆柱 3D 切（已落地） | [CYLINDER-CUT.md](./CYLINDER-CUT.md) |
-| 意图 / 入点 / 余势 / 夹缝 / 乱划 / 有效刀 | `START` `FLASH` · `slashFollow.ts` · [SLASH-INTENT.md](./SLASH-INTENT.md) |
+| 意图 / 入点 / 余势 / 夹缝 / 抬手才切 / 有效刀 | `START` `FLASH` · `slashFollow.ts` · [SLASH-INTENT.md](./SLASH-INTENT.md) |
 | 多指接线检索 | [SLASH-TECH.md](./SLASH-TECH.md) §14 |
 | 手指划痕 | `TRAIL` · `slashTrail.ts` · [SLASH-FEEL.md](./SLASH-FEEL.md) |
 | 顿帧 / 震屏 / 碎屑 | `SHAKE` `FX` · [SLASH-FEEL.md](./SLASH-FEEL.md) |

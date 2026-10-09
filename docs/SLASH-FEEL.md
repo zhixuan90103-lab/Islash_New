@@ -86,7 +86,7 @@ hit    = clamp(speedK * sizeK, SHAKE.floor, 1)
 | cancelWobble | 0 | 取消时左右晃峰值（世界单位）；0 关 |
 | cancelWobbleDur / cancelWobbleHz | 0.22 / 11 | 左右晃时长秒 / 频率 |
 
-Kick 方向 = 切开 `bladeDir`（入点→出点）。`camera.position` 反向加，画面顺着滑的方向踹。合位移有上限。乱划取消另走 Z 向推进再回，本刀只播一次。
+Kick 方向 = 切开 `bladeDir`（入点→出点）。`camera.position` 反向加，画面顺着滑的方向踹。合位移有上限。出纸后切不成不推镜头、不左右晃。
 
 **不要**：每帧 random 偏移；晃 `#stage`；`timeScale=0` 冻全世界；滑动全程 rumble（已回滚）。
 
@@ -100,11 +100,11 @@ Kick 方向 = 切开 `bladeDir`（入点→出点）。`camera.position` 反向�
 | flashAt / flashLife | 0.42 / 0.05 | 低于阈值不闪；白+轻色差，很淡 |
 | burst | 1.28 | 解冻冲量倍率 |
 
-碎屑大小：多数小点，约三成略大。颜色跟被切的纸，不再用木色。刀光也跟纸色，再往白提一截。整张 overlay 在按钮上面，不吃点击。闪是 overlay `screen` 合成，不是后处理 pass。
+碎屑大小：多数小点，约三成略大。颜色跟被切的纸，不再用木色。刀光和外发光是白色。整张 overlay 在按钮上面，不吃点击。闪是 overlay `screen` 合成，不是后处理 pass。
 
 ## 划痕（`TRAIL`，表现层）
 
-判定折线仍走 `INTERP_GAP`；划痕是独立时间制丝带（`slashTrail.ts`）。可见长度 = 最近 `life` 秒路径，钳 `maxLen`。快划长、慢划短但可见。
+现在不画（`TRAIL.show = 0`）。模块还在 `slashTrail.ts`。判定折线仍走 `INTERP_GAP`。若再打开，可见长度 = 最近 `life` 秒路径，钳 `maxLen`。快划长、慢划短。
 
 | 键 | 默认 | 作用 |
 |----|------|------|
