@@ -146,23 +146,81 @@ function smallestTurn(a: number): number {
   return d;
 }
 
+/** 面积主轴的朝向。圆的没有稳定朝向，返回 null。 */
+function principalAngle(poly: Poly2[]): number | null {
+  const c = areaCentroid(poly);
+  let twice = 0;
+  let ixx = 0;
+  let iyy = 0;
+  let ixy = 0;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const x1 = poly[j].x;
+    const y1 = poly[j].y;
+    const x2 = poly[i].x;
+    const y2 = poly[i].y;
+    const cr = x1 * y2 - x2 * y1;
+    twice += cr;
+    iyy += (x1 * x1 + x1 * x2 + x2 * x2) * cr;
+    ixx += (y1 * y1 + y1 * y2 + y2 * y2) * cr;
+    ixy += (x1 * y2 + 2 * x1 * y1 + 2 * x2 * y2 + x2 * y1) * cr;
+  }
+  let area = twice * 0.5;
+  if (Math.abs(area) < 1e-8) return null;
+  // 顺时针多边形的力矩是负的，长短轴会颠倒 90°。龟壳就是这种绕向。
+  if (area < 0) {
+    area = -area;
+    ixx = -ixx;
+    iyy = -iyy;
+    ixy = -ixy;
+  }
+  const mu20 = iyy / 12 - area * c.x * c.x;
+  const mu02 = ixx / 12 - area * c.y * c.y;
+  const mu11 = ixy / 24 - area * c.x * c.y;
+  if ((mu20 - mu02) ** 2 + 4 * mu11 * mu11 < 1e-10) return null;
+  return 0.5 * Math.atan2(2 * mu11, mu20 - mu02);
+}
+
+/** 把纸的主轴转到和剪影同一条。朝向用重合搜索来定，角度本身跟剪影。 */
+function alignToShadow(poly: Poly2[], slot: Poly2[], hint: number): number {
+  const from = principalAngle(poly);
+  const to = principalAngle(slot);
+  if (from == null || to == null) return hint;
+  const d = smallestTurn(to - from);
+  const flip = smallestTurn(d + Math.PI);
+  const nd = Math.abs(smallestTurn(d - hint));
+  const nf = Math.abs(smallestTurn(flip - hint));
+  return nd <= nf ? d : flip;
+}
+
 /**
- * 在最佳朝向附近按 1° 再找一次。
+ * 在最佳朝向附近按 1° 再找。分数持平的那一段取正中间，转到真正最贴的角度。
  * 旁边差一截的角度也差不多贴，就当作角度含糊，不帮。
  */
 function bestTurnFine(poly: Poly2[], slot: Poly2[]): { a: number; iou: number; sharp: boolean } {
   const coarse = bestTurn(poly, slot);
   const c = polyCentroid(poly);
-  let bestA = coarse.a;
-  let best = coarse.iou;
-  for (let deg = -8; deg <= 8; deg++) {
+  const samples: { a: number; iou: number }[] = [];
+  let best = -1;
+  for (let deg = -12; deg <= 12; deg++) {
     const a = coarse.a + (deg * Math.PI) / 180;
     const iou = centeredIou(turnPoly(poly, a, c), slot);
-    if (iou > best) {
-      best = iou;
-      bestA = a;
+    samples.push({ a, iou });
+    if (iou > best) best = iou;
+  }
+  let runFrom = -1;
+  let bestRun: { from: number; to: number } | null = null;
+  for (let i = 0; i <= samples.length; i++) {
+    const on = i < samples.length && samples[i].iou >= best - 1e-9;
+    if (on && runFrom < 0) runFrom = i;
+    if (!on && runFrom >= 0) {
+      const to = i - 1;
+      if (!bestRun || to - runFrom > bestRun.to - bestRun.from) bestRun = { from: runFrom, to };
+      runFrom = -1;
     }
   }
+  const bestA = bestRun
+    ? (samples[bestRun.from].a + samples[bestRun.to].a) * 0.5
+    : coarse.a;
   let sharp = best >= 0;
   for (const deg of [20, -20, 35, -35, 90, -90, 180]) {
     const iou = centeredIou(turnPoly(poly, bestA + (deg * Math.PI) / 180, c), slot);
@@ -776,6 +834,9 @@ export function createCutPuzzle(opts: {
   undoBtn.type = 'button';
   undoBtn.className = 'puzzle-tool is-left';
   undoBtn.innerHTML = undoIcon;
+  const undoBadge = document.createElement('span');
+  undoBadge.className = 'puzzle-hint-badge';
+  undoBtn.appendChild(undoBadge);
   undoBtn.setAttribute('aria-label', '撤销');
 
   const previewBtn = document.createElement('button');
@@ -871,6 +932,8 @@ export function createCutPuzzle(opts: {
   };
 
   let tuneEl: HTMLDivElement | null = null;
+  let replaySide: HTMLButtonElement | null = null;
+  let settingsPanel: HTMLElement | null = null;
   const resultEl = document.createElement('div');
   const replayBtn = document.createElement('button');
   const nextBtn = document.createElement('button');
@@ -910,6 +973,16 @@ export function createCutPuzzle(opts: {
     const panel = document.createElement('div');
     panel.className = 'puzzle-settings-panel';
     panel.hidden = true;
+    settingsPanel = panel;
+    const replaySideBtn = document.createElement('button');
+    replaySideBtn.type = 'button';
+    replaySideBtn.className = 'puzzle-settings-btn';
+    replaySideBtn.setAttribute('aria-label', '重玩');
+    replaySideBtn.innerHTML = `<svg ${iconAttrs}><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>`;
+    replaySide = replaySideBtn;
+    const settingsRow = document.createElement('div');
+    settingsRow.className = 'puzzle-settings-row';
+    settingsRow.append(replaySideBtn, toggle);
     toggle.addEventListener('pointerdown', (ev) => {
       ev.stopPropagation();
       panel.hidden = !panel.hidden;
@@ -1073,7 +1146,7 @@ export function createCutPuzzle(opts: {
       shadeColorInput.value = shade[level].color;
       for (const row of shadeRows) row.pull();
     };
-    tuneEl.append(toggle, panel);
+    tuneEl.append(settingsRow, panel);
     opts.uiRoot.appendChild(tuneEl);
   }
 
@@ -1107,6 +1180,7 @@ export function createCutPuzzle(opts: {
   let stepsLeft = 0;
   let hintOn = false;
   let hintLeft = 1;
+  let undoLeft = 1;
   let hintT = -1;
   /** 当前这条提示：入点 a，出点 b。蝴蝶和乌龟都沿它长出来。 */
   let hintSeg: { ax: number; ay: number; bx: number; by: number } | null = null;
@@ -1192,6 +1266,10 @@ export function createCutPuzzle(opts: {
     level === 'butterfly' ? PUZZLE.stepsButterfly
       : level === 'turtle' ? PUZZLE.stepsTurtle
       : PUZZLE.stepsFish;
+  const undoBudget = () =>
+    level === 'butterfly' ? PUZZLE.undoButterfly
+      : level === 'turtle' ? PUZZLE.undoTurtle
+      : PUZZLE.undoFish;
 
   const paintSteps = () => {
     const started = phase === 'cut' || phase === 'carry' || phase === 'place'
@@ -1235,9 +1313,11 @@ export function createCutPuzzle(opts: {
 
   const paintTools = () => {
     const cutting = phase === 'cut';
-    const undoLive = cutting && history.length > 0;
+    const undoLive = cutting && history.length > 0 && undoLeft > 0;
     undoBtn.classList.toggle('is-on', cutting);
     undoBtn.disabled = cutting && !undoLive;
+    undoBadge.textContent = String(Math.max(0, undoLeft));
+    undoBtn.setAttribute('aria-label', `撤销，还可退 ${Math.max(0, undoLeft)} 刀`);
     hintBtn.classList.toggle('is-on', cutting);
     hintBtn.disabled = cutting && (stepsLeft <= 0 || (!hintOn && hintLeft <= 0));
     hintBadge.textContent = String(Math.max(0, hintLeft));
@@ -1343,6 +1423,7 @@ export function createCutPuzzle(opts: {
     stepsLeft = stepBudget();
     hintOn = level === 'butterfly';
     hintLeft = level === 'butterfly' ? 0 : level === 'turtle' ? 2 : 6;
+    undoLeft = undoBudget();
     hit.textContent = '开始拼装';
     clearHistory();
     resetPieces();
@@ -1442,10 +1523,11 @@ export function createCutPuzzle(opts: {
 
   const undo = () => {
     const op = history.pop();
-    if (!op || !toolsLive()) {
+    if (!op || !toolsLive() || undoLeft <= 0) {
       if (op) history.push(op);
       return;
     }
+    undoLeft -= 1;
     if (op.kind === 'pose') {
       op.mesh.position.copy(op.p);
       op.mesh.quaternion.copy(op.q);
@@ -1579,10 +1661,23 @@ export function createCutPuzzle(opts: {
     lookZ = VIEW.cameraZ;
     pan = null;
     phase = 'show';
+    holdSettings = false;
+    peekHold = false;
+    peekBack = null;
+    peekWait = -1;
+    buttonLatched = false;
+    placeDragged = false;
+    scaleTweens.length = 0;
+    settingsPanel && (settingsPanel.hidden = true);
+    endPlace();
     showNotebook();
     paintSteps();
     paintTools();
   };
+  replaySide?.addEventListener('pointerdown', (ev) => {
+    stopTool(ev);
+    leaveScore(false);
+  });
   previewBtn.addEventListener('pointerdown', (ev) => {
     stopTool(ev);
     if (previewBtn.disabled) return;
@@ -1782,8 +1877,7 @@ export function createCutPuzzle(opts: {
 
   /** 停住时允许的手指抖动（剪影局部单位）。慢慢划过会超过这段。 */
   const AIM_JITTER = 0.028;
-  const AIM_DWELL = 0.3;
-  const AIM_MIN = (5 * Math.PI) / 180;
+  const AIM_DWELL = 0.1;
   const AIM_DUR = 0.7;
   let aim:
     | { total: number; applied: number; u: number; partId: string }
@@ -1859,16 +1953,13 @@ export function createCutPuzzle(opts: {
       if (ratio < 0.6 || ratio > 1.5) continue;
       const fit = bestTurnFine(poly, part.poly);
       if (fit.iou < 0.42 || !fit.sharp) continue;
+      const turn = alignToShadow(poly, part.poly, fit.a);
       if (!winner || fit.iou > winner.iou) {
         second = winner ? winner.iou : 0;
-        winner = { id: part.id, turn: fit.a, iou: fit.iou };
+        winner = { id: part.id, turn, iou: fit.iou };
       } else if (fit.iou > second) second = fit.iou;
     }
     if (!winner || winner.iou - second < 0.08) return;
-    if (Math.abs(winner.turn) < AIM_MIN) {
-      aimDone = { mesh: held, partId: winner.id };
-      return;
-    }
     aim = { total: winner.turn, applied: 0, u: 0, partId: winner.id };
     dwell = null;
   };

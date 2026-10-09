@@ -158,6 +158,10 @@ export const PUZZLE = {
   stepsButterfly: 1,
   stepsTurtle: 2,
   stepsFish: 6,
+  /** 一关能退几刀。用完就不能再退，重玩才补回。 */
+  undoButterfly: 1,
+  undoTurtle: 2,
+  undoFish: 3,
   maxCuts: 3,
   installDur: 0.55,
   inspectDur: 1.15,

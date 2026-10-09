@@ -290,6 +290,12 @@ body.native-app #shell {
   transition: opacity 0.28s ease;
 }
 
+.puzzle-settings-row {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+
 .puzzle-settings-btn {
   width: 44px;
   height: 44px;
