@@ -295,15 +295,11 @@ export function createSlashOverlay(stage: HTMLElement): {
       const head = finale
         ? lerpPt({ x: (a.x + b.x) * 0.5, y: (a.y + b.y) * 0.5 }, b, lenT)
         : lerpPt(a, b, Math.max(0.06, lenT));
-      const ink0 = paperRgb(tail);
-      const ink1 = paperRgb(head);
-      const lift = (v: number) => Math.round(v + (255 - v) * 0.38);
-      const glow = paperRgb({ x: (tail.x + head.x) * 0.5, y: (tail.y + head.y) * 0.5 });
       const blade = ctx.createLinearGradient(tail.x, tail.y, head.x, head.y);
-      blade.addColorStop(0, `rgba(${lift(ink0[0])}, ${lift(ink0[1])}, ${lift(ink0[2])}, ${0.94 * fade})`);
-      blade.addColorStop(1, `rgba(${lift(ink1[0])}, ${lift(ink1[1])}, ${lift(ink1[2])}, ${0.94 * fade})`);
+      blade.addColorStop(0, `rgba(255, 255, 255, ${0.94 * fade})`);
+      blade.addColorStop(1, `rgba(255, 255, 255, ${0.94 * fade})`);
       ctx.save();
-      ctx.shadowColor = `rgba(${glow[0]}, ${glow[1]}, ${glow[2]}, ${0.85 * fade})`;
+      ctx.shadowColor = `rgba(255, 255, 255, ${0.85 * fade})`;
       ctx.shadowBlur =
         FLASH.glowW *
         (finale ? FINALE.glowScale : 1) *
