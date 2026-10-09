@@ -183,53 +183,26 @@ function principalAngle(poly: Poly2[]): number | null {
   return 0.5 * Math.atan2(2 * mu11, mu20 - mu02);
 }
 
-/** 把纸的主轴转到和剪影同一条。朝向用重合搜索来定，角度本身跟剪影。 */
-function alignToShadow(poly: Poly2[], slot: Poly2[], hint: number): number {
+/**
+ * 主轴没有正反。两头都比重合，取更贴的那头。
+ * 这一头和当前差至少 1° 就转。圆、或正反差不多的块，不转。
+ */
+function headTurn(poly: Poly2[], slot: Poly2[]): { turn: number; iou: number } | null {
   const from = principalAngle(poly);
   const to = principalAngle(slot);
-  if (from == null || to == null) return hint;
+  if (from == null || to == null) return null;
+  const c = areaCentroid(poly);
+  const iouAt = (a: number) => centeredIou(turnPoly(poly, a, c), slot);
   const d = smallestTurn(to - from);
   const flip = smallestTurn(d + Math.PI);
-  const nd = Math.abs(smallestTurn(d - hint));
-  const nf = Math.abs(smallestTurn(flip - hint));
-  return nd <= nf ? d : flip;
-}
-
-/**
- * 在最佳朝向附近按 1° 再找。分数持平的那一段取正中间，转到真正最贴的角度。
- * 旁边差一截的角度也差不多贴，就当作角度含糊，不帮。
- */
-function bestTurnFine(poly: Poly2[], slot: Poly2[]): { a: number; iou: number; sharp: boolean } {
-  const coarse = bestTurn(poly, slot);
-  const c = polyCentroid(poly);
-  const samples: { a: number; iou: number }[] = [];
-  let best = -1;
-  for (let deg = -12; deg <= 12; deg++) {
-    const a = coarse.a + (deg * Math.PI) / 180;
-    const iou = centeredIou(turnPoly(poly, a, c), slot);
-    samples.push({ a, iou });
-    if (iou > best) best = iou;
-  }
-  let runFrom = -1;
-  let bestRun: { from: number; to: number } | null = null;
-  for (let i = 0; i <= samples.length; i++) {
-    const on = i < samples.length && samples[i].iou >= best - 1e-9;
-    if (on && runFrom < 0) runFrom = i;
-    if (!on && runFrom >= 0) {
-      const to = i - 1;
-      if (!bestRun || to - runFrom > bestRun.to - bestRun.from) bestRun = { from: runFrom, to };
-      runFrom = -1;
-    }
-  }
-  const bestA = bestRun
-    ? (samples[bestRun.from].a + samples[bestRun.to].a) * 0.5
-    : coarse.a;
-  let sharp = best >= 0;
-  for (const deg of [20, -20, 35, -35, 90, -90, 180]) {
-    const iou = centeredIou(turnPoly(poly, bestA + (deg * Math.PI) / 180, c), slot);
-    if (iou > best - 0.05) sharp = false;
-  }
-  return { a: smallestTurn(bestA), iou: best, sharp };
+  const atD = iouAt(d);
+  const atFlip = iouAt(flip);
+  const turn = atD >= atFlip ? d : flip;
+  const iou = atD >= atFlip ? atD : atFlip;
+  const other = atD >= atFlip ? atFlip : atD;
+  if (iou < 0.42 || iou - other < 0.05) return null;
+  if (Math.abs(turn) < Math.PI / 180) return null;
+  return { turn, iou };
 }
 
 function colorHit(mesh: THREE.Mesh, wantDark: boolean): number {
@@ -1889,8 +1862,6 @@ export function createCutPuzzle(opts: {
     };
   };
 
-  /** 停住时允许的手指抖动（剪影局部单位）。慢慢划过会超过这段。 */
-  const AIM_JITTER = 0.028;
   const AIM_DWELL = 0.1;
   /** 180° 用 0.7 秒。起止用缓动，很小的角度也不短于 AIM_MIN。 */
   const AIM_SPEED = Math.PI / 0.7;
@@ -1899,7 +1870,7 @@ export function createCutPuzzle(opts: {
   let aimDone: { mesh: THREE.Mesh; partId: string } | null = null;
   /** 玩家刚用两指转过。离开当前剪影之前不再自动转。 */
   let handTuned: THREE.Mesh | null = null;
-  let dwell: { x: number; y: number; t: number; partId: string } | null = null;
+  let dwell: { t: number; partId: string } | null = null;
 
   const slotOf = (mesh: THREE.Mesh) => {
     shadePivot.updateMatrixWorld(true);
@@ -1914,7 +1885,20 @@ export function createCutPuzzle(opts: {
   };
 
   const tickAim = (dt: number) => {
-    if (aim && held) {
+    if (phase !== 'place' || !held || fingers.size !== 1) {
+      aim = null;
+      dwell = null;
+      return;
+    }
+    const { poly, c } = slotOf(held);
+    const covered = parts.filter((part) => pointInPoly(c.x, c.y, part.poly));
+    if (aim) {
+      const stay = covered.length === 1 && covered[0].id === aim.partId;
+      if (!stay) {
+        aim = null;
+        dwell = null;
+        return;
+      }
       aim.u = Math.min(1, aim.u + dt / aim.dur);
       const eased = aim.u * aim.u * (3 - 2 * aim.u);
       const at = aim.total * eased;
@@ -1927,16 +1911,10 @@ export function createCutPuzzle(opts: {
       }
       return;
     }
-    if (phase !== 'place' || !held || fingers.size !== 1) {
-      dwell = null;
-      return;
-    }
-    const { poly, c } = slotOf(held);
     if (aimDone && aimDone.mesh === held) {
       const stay = parts.find((p) => p.id === aimDone!.partId);
       if (!stay || !pointInPoly(c.x, c.y, stay.poly)) aimDone = null;
     }
-    const covered = parts.filter((part) => pointInPoly(c.x, c.y, part.poly));
     if (handTuned === held) {
       if (covered.length === 0) handTuned = null;
       else return;
@@ -1947,39 +1925,24 @@ export function createCutPuzzle(opts: {
     }
     const partId = covered[0].id;
     if (!dwell || dwell.partId !== partId) {
-      dwell = { x: c.x, y: c.y, t: 0, partId };
-      return;
-    }
-    const moved = Math.hypot(c.x - dwell.x, c.y - dwell.y);
-    if (moved > AIM_JITTER) {
-      dwell = { x: c.x, y: c.y, t: 0, partId };
+      dwell = { t: 0, partId };
       return;
     }
     dwell.t += dt;
     if (dwell.t < AIM_DWELL || aimDone?.mesh === held) return;
-    let winner: { id: string; turn: number; iou: number } | null = null;
-    let second = 0;
+    const part = covered[0];
     const area = polyArea(poly);
-    for (const part of parts) {
-      if (!pointInPoly(c.x, c.y, part.poly)) continue;
-      const slotArea = polyArea(part.poly);
-      const ratio = slotArea > 1e-6 ? area / slotArea : 0;
-      if (ratio < 0.6 || ratio > 1.5) continue;
-      const fit = bestTurnFine(poly, part.poly);
-      if (fit.iou < 0.42 || !fit.sharp) continue;
-      const turn = alignToShadow(poly, part.poly, fit.a);
-      if (!winner || fit.iou > winner.iou) {
-        second = winner ? winner.iou : 0;
-        winner = { id: part.id, turn, iou: fit.iou };
-      } else if (fit.iou > second) second = fit.iou;
-    }
-    if (!winner || winner.iou - second < 0.08) return;
+    const slotArea = polyArea(part.poly);
+    const ratio = slotArea > 1e-6 ? area / slotArea : 0;
+    if (ratio < 0.6 || ratio > 1.5) return;
+    const fit = headTurn(poly, part.poly);
+    if (!fit) return;
     aim = {
-      total: winner.turn,
+      total: fit.turn,
       applied: 0,
       u: 0,
-      dur: Math.max(AIM_MIN, Math.abs(winner.turn) / AIM_SPEED),
-      partId: winner.id,
+      dur: Math.max(AIM_MIN, Math.abs(fit.turn) / AIM_SPEED),
+      partId: part.id,
     };
     dwell = null;
   };
@@ -2109,6 +2072,7 @@ export function createCutPuzzle(opts: {
   const onPlaceUp = (e: PointerEvent) => {
     fingers.delete(e.pointerId);
     pair = null;
+    if (fingers.size === 0) aim = null;
     flushPlace();
     if (fingers.size === 0) {
       if (held && pose0 && pose0.mesh === held) {
