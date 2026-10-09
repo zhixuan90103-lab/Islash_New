@@ -482,13 +482,13 @@ export const SHAKE = {
   freezeMin: 0.032,
   freezeMax: 0.1,
   /** 乱划取消：镜头沿 Z 推进（世界单位）。0 = 关。不走切开震屏。 */
-  cancelPush: 0.06,
+  cancelPush: 0,
   /** 推到最近的时间（秒）。 */
   cancelPushIn: 0.13,
   /** 回到 rest 的时间（秒）。 */
   cancelPushOut: 0.1,
   /** 乱划取消：左右晃峰值（世界单位）。0 = 关。 */
-  cancelWobble: 0.012,
+  cancelWobble: 0,
   /** 左右晃时长（秒）。 */
   cancelWobbleDur: 0.22,
   /** 左右晃频率（次/秒）。 */

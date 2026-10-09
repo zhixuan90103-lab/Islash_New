@@ -1889,10 +1889,9 @@ export function createCutPuzzle(opts: {
   /** 停住时允许的手指抖动（剪影局部单位）。慢慢划过会超过这段。 */
   const AIM_JITTER = 0.028;
   const AIM_DWELL = 0.1;
-  const AIM_DUR = 0.7;
-  let aim:
-    | { total: number; applied: number; u: number; partId: string }
-    | null = null;
+  /** 180° 用 0.7 秒，小角度按同样角速度更早转完。 */
+  const AIM_SPEED = Math.PI / 0.7;
+  let aim: { left: number; partId: string } | null = null;
   let aimDone: { mesh: THREE.Mesh; partId: string } | null = null;
   /** 玩家刚用两指转过。离开当前剪影之前不再自动转。 */
   let handTuned: THREE.Mesh | null = null;
@@ -1912,13 +1911,11 @@ export function createCutPuzzle(opts: {
 
   const tickAim = (dt: number) => {
     if (aim && held) {
-      aim.u = Math.min(1, aim.u + dt / AIM_DUR);
-      const eased = aim.u * aim.u * (3 - 2 * aim.u);
-      const at = aim.total * eased;
-      const dA = at - aim.applied;
-      aim.applied = at;
+      const step = Math.min(Math.abs(aim.left), AIM_SPEED * dt);
+      const dA = Math.sign(aim.left) * step;
+      aim.left -= dA;
       turnAboutCenter(dA, 0, 0);
-      if (aim.u >= 1) {
+      if (Math.abs(aim.left) < 1e-4) {
         aimDone = { mesh: held, partId: aim.partId };
         aim = null;
       }
@@ -1971,7 +1968,7 @@ export function createCutPuzzle(opts: {
       } else if (fit.iou > second) second = fit.iou;
     }
     if (!winner || winner.iou - second < 0.08) return;
-    aim = { total: winner.turn, applied: 0, u: 0, partId: winner.id };
+    aim = { left: winner.turn, partId: winner.id };
     dwell = null;
   };
 
