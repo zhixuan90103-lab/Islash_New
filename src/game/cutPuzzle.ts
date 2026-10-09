@@ -1789,16 +1789,8 @@ export function createCutPuzzle(opts: {
   type V2 = { x: number; y: number };
   type PairTrack = {
     ang: number;
-    t: number;
-  };
-  const TURN_SLOW = 1;
-  const TURN_FAST = 1.8;
-  const TURN_SLOW_W = (40 * Math.PI) / 180;
-  const TURN_FAST_W = (200 * Math.PI) / 180;
-  const turnGain = (omega: number) => {
-    const u = Math.min(1, Math.max(0, (omega - TURN_SLOW_W) / (TURN_FAST_W - TURN_SLOW_W)));
-    const s = u * u * (3 - 2 * u);
-    return TURN_SLOW + (TURN_FAST - TURN_SLOW) * s;
+    x: number;
+    y: number;
   };
   let primaryId: number | null = null;
   let center: V2 | null = null;
@@ -1824,27 +1816,40 @@ export function createCutPuzzle(opts: {
     return { a, b };
   };
 
-  const seedPair = (a: V2, b: V2, t: number): PairTrack => ({
+  const seedPair = (a: V2, b: V2): PairTrack => ({
     ang: Math.atan2(b.y - a.y, b.x - a.x),
-    t,
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
   });
 
-  const armPair = (t: number) => {
+  const armPair = () => {
     const pts = twoFingers();
-    pair = pts ? seedPair(pts.a, pts.b, t) : null;
+    pair = pts ? seedPair(pts.a, pts.b) : null;
   };
 
-  const stepPair = (a: V2, b: V2, t: number) => {
-    if (!pair) return 0;
+  /**
+   * iOS 旋转手势：绕两指中点转，中点移到哪纸跟到哪。
+   * 这一帧的角用完就记成新的 0。第二指按下时中点只记下，纸不动。
+   */
+  const stepPair = (a: V2, b: V2) => {
+    if (!pair || !held) return 0;
     const ang = Math.atan2(b.y - a.y, b.x - a.x);
     let dA = ang - pair.ang;
     if (dA > Math.PI) dA -= Math.PI * 2;
     if (dA < -Math.PI) dA += Math.PI * 2;
-    const dt = Math.max(0.008, (t - pair.t) / 1000);
-    const applied = dA * turnGain(Math.abs(dA) / dt);
+    const x = (a.x + b.x) / 2;
+    const y = (a.y + b.y) / 2;
+    const ox = held.position.x - pair.x;
+    const oy = held.position.y - pair.y;
+    const co = Math.cos(dA);
+    const si = Math.sin(dA);
+    held.position.x = x + ox * co - oy * si;
+    held.position.y = y + ox * si + oy * co;
+    if (dA !== 0) held.rotateZ(dA);
     pair.ang = ang;
-    pair.t = t;
-    return applied;
+    pair.x = x;
+    pair.y = y;
+    return dA;
   };
 
   const lockCenter = (mesh: THREE.Mesh) => {
@@ -1983,12 +1988,11 @@ export function createCutPuzzle(opts: {
     pending.dy = 0;
     pending.dA = 0;
     if (dx === 0 && dy === 0 && dA === 0) return;
-    if (dA !== 0) turnAboutCenter(dA, dx, dy);
+    if (dA !== 0) noteHandTurn(dA);
     else {
       held.position.x += dx;
       held.position.y += dy;
     }
-    if (dA !== 0) noteHandTurn(dA);
   };
 
   const turnAboutCenter = (dA: number, dX: number, dY: number) => {
@@ -2057,7 +2061,7 @@ export function createCutPuzzle(opts: {
       };
       liftPiece(mesh);
     }
-    armPair(e.timeStamp);
+    armPair();
   };
 
   const onPlaceMove = (e: PointerEvent) => {
@@ -2069,11 +2073,8 @@ export function createCutPuzzle(opts: {
     const pts = twoFingers();
     if (pts && pair) {
       aim = null;
-      pending.dA += stepPair(pts.a, pts.b, e.timeStamp);
-      if (e.pointerId === primaryId) {
-        pending.dx += at.x - prev.x;
-        pending.dy += at.y - prev.y;
-      }
+      const dA = stepPair(pts.a, pts.b);
+      if (dA !== 0) pending.dA += dA;
       return;
     }
     pending.dx += at.x - prev.x;
@@ -2106,7 +2107,7 @@ export function createCutPuzzle(opts: {
     if (e.pointerId === primaryId) {
       primaryId = fingers.keys().next().value ?? null;
     }
-    armPair(e.timeStamp);
+    armPair();
   };
 
   const onPlaceMoveWindow = (e: PointerEvent) => {
