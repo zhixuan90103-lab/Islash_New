@@ -1889,9 +1889,10 @@ export function createCutPuzzle(opts: {
   /** 停住时允许的手指抖动（剪影局部单位）。慢慢划过会超过这段。 */
   const AIM_JITTER = 0.028;
   const AIM_DWELL = 0.1;
-  /** 180° 用 0.7 秒，小角度按同样角速度更早转完。 */
+  /** 180° 用 0.7 秒。起止用缓动，很小的角度也不短于 AIM_MIN。 */
   const AIM_SPEED = Math.PI / 0.7;
-  let aim: { left: number; partId: string } | null = null;
+  const AIM_MIN = 0.22;
+  let aim: { total: number; applied: number; u: number; dur: number; partId: string } | null = null;
   let aimDone: { mesh: THREE.Mesh; partId: string } | null = null;
   /** 玩家刚用两指转过。离开当前剪影之前不再自动转。 */
   let handTuned: THREE.Mesh | null = null;
@@ -1911,11 +1912,13 @@ export function createCutPuzzle(opts: {
 
   const tickAim = (dt: number) => {
     if (aim && held) {
-      const step = Math.min(Math.abs(aim.left), AIM_SPEED * dt);
-      const dA = Math.sign(aim.left) * step;
-      aim.left -= dA;
+      aim.u = Math.min(1, aim.u + dt / aim.dur);
+      const eased = aim.u * aim.u * (3 - 2 * aim.u);
+      const at = aim.total * eased;
+      const dA = at - aim.applied;
+      aim.applied = at;
       turnAboutCenter(dA, 0, 0);
-      if (Math.abs(aim.left) < 1e-4) {
+      if (aim.u >= 1) {
         aimDone = { mesh: held, partId: aim.partId };
         aim = null;
       }
@@ -1968,7 +1971,13 @@ export function createCutPuzzle(opts: {
       } else if (fit.iou > second) second = fit.iou;
     }
     if (!winner || winner.iou - second < 0.08) return;
-    aim = { left: winner.turn, partId: winner.id };
+    aim = {
+      total: winner.turn,
+      applied: 0,
+      u: 0,
+      dur: Math.max(AIM_MIN, Math.abs(winner.turn) / AIM_SPEED),
+      partId: winner.id,
+    };
     dwell = null;
   };
 

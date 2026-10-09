@@ -223,11 +223,11 @@ export const VIEW = {
   cameraZ: 6.2,
   /**
    * 裁纸区镜头远近。已定，不要随手改。
-   * 蝴蝶 4.6，乌龟 4.2，鱼 5.0。看笔记本仍用 cameraZ。
+   * 蝴蝶 4.6，乌龟 4.2，鱼 5.1。看笔记本仍用 cameraZ。
    */
   cutZButterfly: 4.6,
   cutZTurtle: 4.2,
-  cutZFish: 5.0,
+  cutZFish: 5.1,
   /** letterbox / 场景底色（轻松浅蓝纯色）。 */
   bg: 0x4db8ff,
   bgCenter: 0x6ec8ff,
