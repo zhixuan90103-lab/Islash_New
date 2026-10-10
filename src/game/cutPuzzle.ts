@@ -861,9 +861,6 @@ export function createCutPuzzle(opts: {
   undoBtn.type = 'button';
   undoBtn.className = 'puzzle-tool is-left';
   undoBtn.innerHTML = undoIcon;
-  const undoBadge = document.createElement('span');
-  undoBadge.className = 'puzzle-hint-badge';
-  undoBtn.appendChild(undoBadge);
   undoBtn.setAttribute('aria-label', '撤销');
 
   const previewBtn = document.createElement('button');
@@ -1230,7 +1227,6 @@ export function createCutPuzzle(opts: {
   let stepsLeft = 0;
   let hintOn = false;
   let hintLeft = 1;
-  let undoLeft = 1;
   let hintT = -1;
   /** 当前这条提示：入点 a，出点 b。蝴蝶和乌龟都沿它长出来。 */
   let hintSeg: { ax: number; ay: number; bx: number; by: number } | null = null;
@@ -1296,6 +1292,9 @@ export function createCutPuzzle(opts: {
     parent: THREE.Mesh;
     inFrags: boolean;
     children: [THREE.Mesh, THREE.Mesh];
+    /** 这一刀落下之前，提示有没有开着，以及还剩几次。 */
+    hintOn: boolean;
+    hintLeft: number;
   };
   type PoseSnap = {
     kind: 'pose';
@@ -1316,11 +1315,6 @@ export function createCutPuzzle(opts: {
     level === 'butterfly' ? PUZZLE.stepsButterfly
       : level === 'turtle' ? PUZZLE.stepsTurtle
       : PUZZLE.stepsFish;
-  const undoBudget = () =>
-    level === 'butterfly' ? PUZZLE.undoButterfly
-      : level === 'turtle' ? PUZZLE.undoTurtle
-      : PUZZLE.undoFish;
-
   const paintSteps = () => {
     const started = phase === 'cut' || phase === 'carry' || phase === 'place'
       || phase === 'inspect' || phase === 'score';
@@ -1363,11 +1357,10 @@ export function createCutPuzzle(opts: {
 
   const paintTools = () => {
     const cutting = phase === 'cut';
-    const undoLive = cutting && history.length > 0 && undoLeft > 0;
+    const undoLive = cutting && history.length > 0;
     undoBtn.classList.toggle('is-on', cutting);
     undoBtn.disabled = cutting && !undoLive;
-    undoBadge.textContent = String(Math.max(0, undoLeft));
-    undoBtn.setAttribute('aria-label', `撤销，还可退 ${Math.max(0, undoLeft)} 刀`);
+    undoBtn.setAttribute('aria-label', '撤销');
     hintBtn.classList.toggle('is-on', cutting);
     hintBtn.disabled = cutting && (stepsLeft <= 0 || (!hintOn && hintLeft <= 0));
     hintBadge.textContent = String(Math.max(0, hintLeft));
@@ -1472,8 +1465,7 @@ export function createCutPuzzle(opts: {
     cuts = 0;
     stepsLeft = stepBudget();
     hintOn = level === 'butterfly';
-    hintLeft = level === 'butterfly' ? 0 : level === 'turtle' ? 2 : 6;
-    undoLeft = undoBudget();
+    hintLeft = level === 'butterfly' ? 0 : 1;
     hit.textContent = '开始拼装';
     clearHistory();
     resetPieces();
@@ -1567,17 +1559,18 @@ export function createCutPuzzle(opts: {
       parent,
       inFrags: frags.includes(parent),
       children: [a, b],
+      hintOn,
+      hintLeft,
     });
     paintTools();
   };
 
   const undo = () => {
     const op = history.pop();
-    if (!op || !toolsLive() || undoLeft <= 0) {
+    if (!op || !toolsLive()) {
       if (op) history.push(op);
       return;
     }
-    undoLeft -= 1;
     tapButton();
     if (op.kind === 'pose') {
       op.mesh.position.copy(op.p);
@@ -1597,8 +1590,11 @@ export function createCutPuzzle(opts: {
     stepsLeft = Math.min(stepBudget(), stepsLeft + 1);
     cuts = Math.max(0, cuts - 1);
     buttonLatched = false;
-    if (level === 'turtle' || level === 'fish') hintOn = false;
+    hintOn = op.hintOn;
+    hintLeft = op.hintLeft;
+    hintT = op.hintOn ? 0 : -1;
     rebuildHint();
+    if (op.hintOn) poseHint(0);
     refreshButton();
     paintTools();
   };
@@ -2305,8 +2301,17 @@ export function createCutPuzzle(opts: {
       }
       cuts += 1;
       stepsLeft = Math.max(0, stepsLeft - 1);
-      if (level === 'turtle' || level === 'fish') hintOn = false;
       rebuildHint();
+      if (hintOn) {
+        const more = level !== 'butterfly' && hintSeg != null;
+        if (more) {
+          hintT = 0;
+          poseHint(0);
+        } else {
+          hintOn = false;
+          hintT = -1;
+        }
+      }
       refreshButton();
       return 'ok';
     },
